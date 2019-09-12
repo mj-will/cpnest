@@ -1,0 +1,1395 @@
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <title>cpnest package &#8212; CPNest 0.9.7 documentation</title>
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <script async="async" type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">CPNest 0.9.7 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="cpnest-package">
+<h1>cpnest package<a class="headerlink" href="#cpnest-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-cpnest.NestedSampling">
+<span id="cpnest-nestedsampling-module"></span><h2>cpnest.NestedSampling module<a class="headerlink" href="#module-cpnest.NestedSampling" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="cpnest.NestedSampling.NestedSampler">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.NestedSampling.</code><code class="sig-name descname">NestedSampler</code><span class="sig-paren">(</span><em class="sig-param">usermodel</em>, <em class="sig-param">manager=None</em>, <em class="sig-param">nlive=1024</em>, <em class="sig-param">output=None</em>, <em class="sig-param">verbose=1</em>, <em class="sig-param">seed=1</em>, <em class="sig-param">prior_sampling=False</em>, <em class="sig-param">stopping=0.1</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Nested Sampler class.
+Initialisation arguments:</p>
+<dl class="simple">
+<dt>manager: <cite>multiprocessing</cite> manager instance which controls</dt><dd><p>the shared objects.
+Default: None</p>
+</dd>
+<dt>Nlive: int</dt><dd><p>number of live points to be used for the integration
+Default: 1024</p>
+</dd>
+<dt>output: string</dt><dd><p>folder where the output will be stored
+Default: None</p>
+</dd>
+<dt>verbose: int</dt><dd><p>0: Nothing
+1: display information on screen
+2: (1) + diagnostic plots
+Default: 1</p>
+</dd>
+<dt>seed: int</dt><dd><p>seed for the initialisation of the pseudorandom chain
+Default: 1234</p>
+</dd>
+<dt>prior_sampling: boolean</dt><dd><p>produce Nlive samples from the prior.
+Default: False</p>
+</dd>
+<dt>stopping: float</dt><dd><p>Stop when remaining samples wouldn’t change logZ estimate by this much.
+Deafult: 0.1</p>
+</dd>
+</dl>
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.checkpoint">
+<code class="sig-name descname">checkpoint</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.checkpoint"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.checkpoint" title="Permalink to this definition">¶</a></dt>
+<dd><p>Checkpoint its internal state</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.consume_sample">
+<code class="sig-name descname">consume_sample</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.consume_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.consume_sample" title="Permalink to this definition">¶</a></dt>
+<dd><p>consumes a sample from the consumer_pipes
+and updates the evidence logZ</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.get_worst_n_live_points">
+<code class="sig-name descname">get_worst_n_live_points</code><span class="sig-paren">(</span><em class="sig-param">n</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.get_worst_n_live_points"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.get_worst_n_live_points" title="Permalink to this definition">¶</a></dt>
+<dd><p>selects the lowest likelihood N live points
+for evolution</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.nested_sampling_loop">
+<code class="sig-name descname">nested_sampling_loop</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.nested_sampling_loop"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.nested_sampling_loop" title="Permalink to this definition">¶</a></dt>
+<dd><p>main nested sampling loop</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.reset">
+<code class="sig-name descname">reset</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.reset"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.reset" title="Permalink to this definition">¶</a></dt>
+<dd><p>Initialise the pool of <cite>cpnest.parameter.LivePoint</cite> by
+sampling them from the <cite>cpnest.model.log_prior</cite> distribution</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.resume">
+<em class="property">classmethod </em><code class="sig-name descname">resume</code><span class="sig-paren">(</span><em class="sig-param">filename</em>, <em class="sig-param">manager</em>, <em class="sig-param">usermodel</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.resume"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.resume" title="Permalink to this definition">¶</a></dt>
+<dd><p>Resumes the interrupted state from a
+checkpoint pickle file.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.setup_output">
+<code class="sig-name descname">setup_output</code><span class="sig-paren">(</span><em class="sig-param">output</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.setup_output"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.setup_output" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set up the output folder</p>
+<p>Parameters:
+output: string</p>
+<blockquote>
+<div><p>folder where the results will be stored</p>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><dl class="simple">
+<dt>tuple</dt><dd><p>output_file:   file where the nested samples will be written
+evidence_file: file where the evidence will be written
+resume_file:   file used for checkpointing the algorithm</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>output_file, evidence_file, resume_file</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.setup_random_seed">
+<code class="sig-name descname">setup_random_seed</code><span class="sig-paren">(</span><em class="sig-param">seed</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.setup_random_seed"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.setup_random_seed" title="Permalink to this definition">¶</a></dt>
+<dd><p>initialise the random seed</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.write_chain_to_file">
+<code class="sig-name descname">write_chain_to_file</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.write_chain_to_file"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.write_chain_to_file" title="Permalink to this definition">¶</a></dt>
+<dd><p>Outputs a <cite>cpnest.parameter.LivePoint</cite> to the
+output_file</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.NestedSampling.NestedSampler.write_evidence_to_file">
+<code class="sig-name descname">write_evidence_to_file</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/NestedSampling.html#NestedSampler.write_evidence_to_file"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.NestedSampling.NestedSampler.write_evidence_to_file" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write the evidence logZ and maximum likelihood to the evidence_file</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-cpnest.cpnest">
+<span id="cpnest-cpnest-module"></span><h2>cpnest.cpnest module<a class="headerlink" href="#module-cpnest.cpnest" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="cpnest.cpnest.CPNest">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.cpnest.</code><code class="sig-name descname">CPNest</code><span class="sig-paren">(</span><em class="sig-param">usermodel</em>, <em class="sig-param">nlive=100</em>, <em class="sig-param">poolsize=100</em>, <em class="sig-param">output='./'</em>, <em class="sig-param">verbose=0</em>, <em class="sig-param">seed=None</em>, <em class="sig-param">maxmcmc=100</em>, <em class="sig-param">nthreads=None</em>, <em class="sig-param">nhamiltonian=0</em>, <em class="sig-param">resume=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Class to control CPNest sampler
+cp = CPNest(usermodel,nlive=100,output=’./’,verbose=0,seed=None,maxmcmc=100,nthreads=None,balanced_sampling = True)</p>
+<p>Input variables:
+usermodel : an object inheriting cpnest.model.Model that defines the user’s problem
+nlive : Number of live points (100)
+poolsize: Number of objects in the sampler pool (100)
+output : output directory (./)
+verbose: Verbosity, 0=silent, 1=progress, 2=diagnostic, 3=detailed diagnostic
+seed: random seed (default: 1234)
+maxmcmc: maximum MCMC points for sampling chains (100)
+nthreads: number of parallel samplers. Default (None) uses mp.cpu_count() to autodetermine
+nhamiltomnian: number of sampler threads using an hamiltonian samplers. Default: 0
+resume: determines whether cpnest will resume a run or run from scratch. Default: False.</p>
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.checkpoint">
+<code class="sig-name descname">checkpoint</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.checkpoint"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.checkpoint" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.get_nested_samples">
+<code class="sig-name descname">get_nested_samples</code><span class="sig-paren">(</span><em class="sig-param">filename='nested_samples.dat'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.get_nested_samples"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.get_nested_samples" title="Permalink to this definition">¶</a></dt>
+<dd><p>returns nested sampling chain
+:param filename: If given, file to save nested samples to
+:type filename: string</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><strong>pos</strong></p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.get_posterior_samples">
+<code class="sig-name descname">get_posterior_samples</code><span class="sig-paren">(</span><em class="sig-param">filename='posterior.dat'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.get_posterior_samples"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.get_posterior_samples" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns posterior samples</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>filename</strong> (<em>string</em>) – If given, file to save posterior samples to</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>pos</strong></p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.plot">
+<code class="sig-name descname">plot</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.plot"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.plot" title="Permalink to this definition">¶</a></dt>
+<dd><p>Make diagnostic plots of the posterior and nested samples</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.profile">
+<code class="sig-name descname">profile</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.profile"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.profile" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.run">
+<code class="sig-name descname">run</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.run"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.run" title="Permalink to this definition">¶</a></dt>
+<dd><p>Run the sampler</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.worker_ns">
+<code class="sig-name descname">worker_ns</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.worker_ns"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.worker_ns" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.CPNest.worker_sampler">
+<code class="sig-name descname">worker_sampler</code><span class="sig-paren">(</span><em class="sig-param">producer_pipe</em>, <em class="sig-param">logLmin</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#CPNest.worker_sampler"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CPNest.worker_sampler" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="exception">
+<dt id="cpnest.cpnest.CheckPoint">
+<em class="property">exception </em><code class="sig-prename descclassname">cpnest.cpnest.</code><code class="sig-name descname">CheckPoint</code><a class="reference internal" href="_modules/cpnest/cpnest.html#CheckPoint"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.CheckPoint" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/exceptions.html#Exception" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></a></p>
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.cpnest.RunManager">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.cpnest.</code><code class="sig-name descname">RunManager</code><span class="sig-paren">(</span><em class="sig-param">nthreads=None</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#RunManager"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.RunManager" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/multiprocessing.html#multiprocessing.managers.SyncManager" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">multiprocessing.managers.SyncManager</span></code></a></p>
+<dl class="method">
+<dt id="cpnest.cpnest.RunManager.connect_producer">
+<code class="sig-name descname">connect_producer</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#RunManager.connect_producer"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.RunManager.connect_producer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the producer’s end of the pipe</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.cpnest.RunManager.start">
+<code class="sig-name descname">start</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#RunManager.start"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.RunManager.start" title="Permalink to this definition">¶</a></dt>
+<dd><p>Spawn a server process for this manager object</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.cpnest.sighandler">
+<code class="sig-prename descclassname">cpnest.cpnest.</code><code class="sig-name descname">sighandler</code><span class="sig-paren">(</span><em class="sig-param">signal</em>, <em class="sig-param">frame</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/cpnest.html#sighandler"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.cpnest.sighandler" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-cpnest.model">
+<span id="cpnest-model-module"></span><h2>cpnest.model module<a class="headerlink" href="#module-cpnest.model" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="cpnest.model.Model">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.model.</code><code class="sig-name descname">Model</code><a class="reference internal" href="_modules/cpnest/model.html#Model"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Base class for user’s model. User should subclass this
+and implement log_likelihood, names and bounds</p>
+<dl class="attribute">
+<dt id="cpnest.model.Model.bounds">
+<code class="sig-name descname">bounds</code><em class="property"> = []</em><a class="headerlink" href="#cpnest.model.Model.bounds" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.force">
+<code class="sig-name descname">force</code><span class="sig-paren">(</span><em class="sig-param">param</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.force"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.force" title="Permalink to this definition">¶</a></dt>
+<dd><p>returns the force (-grad potential)
+Required for Hamiltonian sampling</p>
+<p>Parameter:
+param: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.header">
+<code class="sig-name descname">header</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.header"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a string with the output file header</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.in_bounds">
+<code class="sig-name descname">in_bounds</code><span class="sig-paren">(</span><em class="sig-param">param</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.in_bounds"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.in_bounds" title="Permalink to this definition">¶</a></dt>
+<dd><p>Checks whether param lies within the bounds</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>param</strong> – <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>if all dimensions are within the bounds
+False: otherwise</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>True</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.log_likelihood">
+<em class="property">abstract </em><code class="sig-name descname">log_likelihood</code><span class="sig-paren">(</span><em class="sig-param">param</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.log_likelihood"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.log_likelihood" title="Permalink to this definition">¶</a></dt>
+<dd><p>returns log likelihood of given parameter</p>
+<dl class="simple">
+<dt>Parameter:</dt><dd><p>param: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.log_prior">
+<code class="sig-name descname">log_prior</code><span class="sig-paren">(</span><em class="sig-param">param</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.log_prior"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.log_prior" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns log of prior.
+Default is flat prior within bounds</p>
+<dl class="simple">
+<dt>Parameter:</dt><dd><p>param: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>0 if param is in bounds
+-np.inf otherwise</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.model.Model.names">
+<code class="sig-name descname">names</code><em class="property"> = []</em><a class="headerlink" href="#cpnest.model.Model.names" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.new_point">
+<code class="sig-name descname">new_point</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.new_point"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.new_point" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create a new LivePoint, drawn from within bounds</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>p</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.potential">
+<code class="sig-name descname">potential</code><span class="sig-paren">(</span><em class="sig-param">param</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.potential"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.potential" title="Permalink to this definition">¶</a></dt>
+<dd><p>Parameter:
+param: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>obj: -<cite>cpnest.model.log_prior</cite></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.model.Model.strsample">
+<code class="sig-name descname">strsample</code><span class="sig-paren">(</span><em class="sig-param">sample</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/model.html#Model.strsample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.model.Model.strsample" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a string representation for the sample to be written
+to the output file. User may overload for additional output
+———-
+Parameter:</p>
+<blockquote>
+<div><p>param: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</div></blockquote>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><dl class="field-list simple">
+<dt class="field-odd">string</dt>
+<dd class="field-odd"><p></p></dd>
+</dl>
+</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>line</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.model.uniform">
+<code class="sig-prename descclassname">cpnest.model.</code><code class="sig-name descname">uniform</code><span class="sig-paren">(</span><em class="sig-param">low=0.0</em>, <em class="sig-param">high=1.0</em>, <em class="sig-param">size=None</em><span class="sig-paren">)</span><a class="headerlink" href="#cpnest.model.uniform" title="Permalink to this definition">¶</a></dt>
+<dd><p>Draw samples from a uniform distribution.</p>
+<p>Samples are uniformly distributed over the half-open interval
+<code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high)</span></code> (includes low, but excludes high).  In other words,
+any value within the given interval is equally likely to be drawn
+by <cite>uniform</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>low</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.7)"><em>float</em></a><em> or </em><em>array_like of floats</em><em>, </em><em>optional</em>) – Lower boundary of the output interval.  All values generated will be
+greater than or equal to low.  The default value is 0.</p></li>
+<li><p><strong>high</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.7)"><em>float</em></a><em> or </em><em>array_like of floats</em>) – Upper boundary of the output interval.  All values generated will be
+less than high.  The default value is 1.0.</p></li>
+<li><p><strong>size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.7)"><em>int</em></a><em> or </em><em>tuple of ints</em><em>, </em><em>optional</em>) – Output shape.  If the given shape is, e.g., <code class="docutils literal notranslate"><span class="pre">(m,</span> <span class="pre">n,</span> <span class="pre">k)</span></code>, then
+<code class="docutils literal notranslate"><span class="pre">m</span> <span class="pre">*</span> <span class="pre">n</span> <span class="pre">*</span> <span class="pre">k</span></code> samples are drawn.  If size is <code class="docutils literal notranslate"><span class="pre">None</span></code> (default),
+a single value is returned if <code class="docutils literal notranslate"><span class="pre">low</span></code> and <code class="docutils literal notranslate"><span class="pre">high</span></code> are both scalars.
+Otherwise, <code class="docutils literal notranslate"><span class="pre">np.broadcast(low,</span> <span class="pre">high).size</span></code> samples are drawn.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>out</strong> – Drawn samples from the parameterized uniform distribution.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray or scalar</p>
+</dd>
+</dl>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">randint()</span></code></dt><dd><p>Discrete uniform distribution, yielding integers.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">random_integers()</span></code></dt><dd><p>Discrete uniform distribution over the closed interval <code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high]</span></code>.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">random_sample()</span></code></dt><dd><p>Floats uniformly distributed over <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1)</span></code>.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">random()</span></code></dt><dd><p>Alias for <cite>random_sample</cite>.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">rand()</span></code></dt><dd><p>Convenience function that accepts dimensions as input, e.g., <code class="docutils literal notranslate"><span class="pre">rand(2,2)</span></code> would generate a 2-by-2 array of floats, uniformly distributed over <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1)</span></code>.</p>
+</dd>
+</dl>
+</div>
+<p class="rubric">Notes</p>
+<p>The probability density function of the uniform distribution is</p>
+<div class="math notranslate nohighlight">
+\[p(x) = \frac{1}{b - a}\]</div>
+<p>anywhere within the interval <code class="docutils literal notranslate"><span class="pre">[a,</span> <span class="pre">b)</span></code>, and zero elsewhere.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">high</span></code> == <code class="docutils literal notranslate"><span class="pre">low</span></code>, values of <code class="docutils literal notranslate"><span class="pre">low</span></code> will be returned.
+If <code class="docutils literal notranslate"><span class="pre">high</span></code> &lt; <code class="docutils literal notranslate"><span class="pre">low</span></code>, the results are officially undefined
+and may eventually raise an error, i.e. do not rely on this
+function to behave when passed arguments satisfying that
+inequality condition.</p>
+<p class="rubric">Examples</p>
+<p>Draw samples from the distribution:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">1000</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>All values are within the given interval:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">s</span> <span class="o">&gt;=</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="go">True</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">s</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+<span class="go">True</span>
+</pre></div>
+</div>
+<p>Display the histogram of the samples, along with the
+probability density function:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">count</span><span class="p">,</span> <span class="n">bins</span><span class="p">,</span> <span class="n">ignored</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">hist</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="n">density</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">bins</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">bins</span><span class="p">),</span> <span class="n">linewidth</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;r&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</div>
+<div class="section" id="module-cpnest.nest2pos">
+<span id="cpnest-nest2pos-module"></span><h2>cpnest.nest2pos module<a class="headerlink" href="#module-cpnest.nest2pos" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="cpnest.nest2pos.acl">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">acl</code><span class="sig-paren">(</span><em class="sig-param">acf</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#acl"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.acl" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.autocorrelation">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">autocorrelation</code><span class="sig-paren">(</span><em class="sig-param">x</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#autocorrelation"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.autocorrelation" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the autocorrelation of the signal, based on the properties of the
+power spectral density of the signal.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.compute_weights">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">compute_weights</code><span class="sig-paren">(</span><em class="sig-param">data</em>, <em class="sig-param">Nlive</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#compute_weights"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.compute_weights" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns log_ev, log_wts for the log-likelihood samples in data,
+assumed to be a result of nested sampling with Nlive live points.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.draw_N_posterior">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">draw_N_posterior</code><span class="sig-paren">(</span><em class="sig-param">data</em>, <em class="sig-param">log_wts</em>, <em class="sig-param">N</em>, <em class="sig-param">verbose=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#draw_N_posterior"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.draw_N_posterior" title="Permalink to this definition">¶</a></dt>
+<dd><p>Draw N samples from the input data, weighted by log_wt.
+For large N there may be repeated samples</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.draw_N_posterior_many">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">draw_N_posterior_many</code><span class="sig-paren">(</span><em class="sig-param">datas</em>, <em class="sig-param">Nlives</em>, <em class="sig-param">Npost</em>, <em class="sig-param">verbose=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#draw_N_posterior_many"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.draw_N_posterior_many" title="Permalink to this definition">¶</a></dt>
+<dd><p>Draw Npost samples from the posteriors represented by the
+(Nruns, Nsamples, Nparams)-shaped array datas, each sampled with
+the corresponding number of live points Nlive. The returned number
+of samples may not be exactly Npost due to rounding</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.draw_posterior">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">draw_posterior</code><span class="sig-paren">(</span><em class="sig-param">data</em>, <em class="sig-param">log_wts</em>, <em class="sig-param">verbose=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#draw_posterior"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.draw_posterior" title="Permalink to this definition">¶</a></dt>
+<dd><p>Draw points from the given data (of shape (Nsamples, Ndim))
+with associated log(weight) (of shape (Nsamples,)). Draws uniquely so
+there are no repeated samples</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.draw_posterior_many">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">draw_posterior_many</code><span class="sig-paren">(</span><em class="sig-param">datas</em>, <em class="sig-param">Nlives</em>, <em class="sig-param">verbose=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#draw_posterior_many"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.draw_posterior_many" title="Permalink to this definition">¶</a></dt>
+<dd><p>Draw samples from the posteriors represented by the
+(Nruns, Nsamples, Nparams)-shaped array datas, each sampled with
+the corresponding Nlive number of live points. Will draw without repetition,
+and weight according to the evidence in each input run</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.log_integrate_log_trap">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">log_integrate_log_trap</code><span class="sig-paren">(</span><em class="sig-param">log_func</em>, <em class="sig-param">log_support</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#log_integrate_log_trap"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.log_integrate_log_trap" title="Permalink to this definition">¶</a></dt>
+<dd><p>Trapezoidal integration of given log(func)
+Returns log of the integral</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.logsubexp">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">logsubexp</code><span class="sig-paren">(</span><em class="sig-param">x</em>, <em class="sig-param">y</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#logsubexp"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.logsubexp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Helper function to compute the exponential
+of a difference between two numbers</p>
+<dl class="simple">
+<dt>Parameter:</dt><dd><p>x: :float:
+y: :float:</p>
+</dd>
+</dl>
+<dl class="simple">
+<dt>Return</dt><dd><p>z: :float: x + np.log1p(-np.exp(y-x))</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.redraw_mcmc_chain">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">redraw_mcmc_chain</code><span class="sig-paren">(</span><em class="sig-param">chain</em>, <em class="sig-param">verbose=False</em>, <em class="sig-param">burnin=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/nest2pos.html#redraw_mcmc_chain"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.nest2pos.redraw_mcmc_chain" title="Permalink to this definition">¶</a></dt>
+<dd><p>Draw samples from the mcmc chains posteriors by redrawing
+each one of them against the Metropolis-Hastings rule</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.nest2pos.uniform">
+<code class="sig-prename descclassname">cpnest.nest2pos.</code><code class="sig-name descname">uniform</code><span class="sig-paren">(</span><em class="sig-param">low=0.0</em>, <em class="sig-param">high=1.0</em>, <em class="sig-param">size=None</em><span class="sig-paren">)</span><a class="headerlink" href="#cpnest.nest2pos.uniform" title="Permalink to this definition">¶</a></dt>
+<dd><p>Draw samples from a uniform distribution.</p>
+<p>Samples are uniformly distributed over the half-open interval
+<code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high)</span></code> (includes low, but excludes high).  In other words,
+any value within the given interval is equally likely to be drawn
+by <cite>uniform</cite>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>low</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.7)"><em>float</em></a><em> or </em><em>array_like of floats</em><em>, </em><em>optional</em>) – Lower boundary of the output interval.  All values generated will be
+greater than or equal to low.  The default value is 0.</p></li>
+<li><p><strong>high</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.7)"><em>float</em></a><em> or </em><em>array_like of floats</em>) – Upper boundary of the output interval.  All values generated will be
+less than high.  The default value is 1.0.</p></li>
+<li><p><strong>size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.7)"><em>int</em></a><em> or </em><em>tuple of ints</em><em>, </em><em>optional</em>) – Output shape.  If the given shape is, e.g., <code class="docutils literal notranslate"><span class="pre">(m,</span> <span class="pre">n,</span> <span class="pre">k)</span></code>, then
+<code class="docutils literal notranslate"><span class="pre">m</span> <span class="pre">*</span> <span class="pre">n</span> <span class="pre">*</span> <span class="pre">k</span></code> samples are drawn.  If size is <code class="docutils literal notranslate"><span class="pre">None</span></code> (default),
+a single value is returned if <code class="docutils literal notranslate"><span class="pre">low</span></code> and <code class="docutils literal notranslate"><span class="pre">high</span></code> are both scalars.
+Otherwise, <code class="docutils literal notranslate"><span class="pre">np.broadcast(low,</span> <span class="pre">high).size</span></code> samples are drawn.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>out</strong> – Drawn samples from the parameterized uniform distribution.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>ndarray or scalar</p>
+</dd>
+</dl>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">randint()</span></code></dt><dd><p>Discrete uniform distribution, yielding integers.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">random_integers()</span></code></dt><dd><p>Discrete uniform distribution over the closed interval <code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high]</span></code>.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">random_sample()</span></code></dt><dd><p>Floats uniformly distributed over <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1)</span></code>.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">random()</span></code></dt><dd><p>Alias for <cite>random_sample</cite>.</p>
+</dd>
+<dt><code class="xref py py-func docutils literal notranslate"><span class="pre">rand()</span></code></dt><dd><p>Convenience function that accepts dimensions as input, e.g., <code class="docutils literal notranslate"><span class="pre">rand(2,2)</span></code> would generate a 2-by-2 array of floats, uniformly distributed over <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1)</span></code>.</p>
+</dd>
+</dl>
+</div>
+<p class="rubric">Notes</p>
+<p>The probability density function of the uniform distribution is</p>
+<div class="math notranslate nohighlight">
+\[p(x) = \frac{1}{b - a}\]</div>
+<p>anywhere within the interval <code class="docutils literal notranslate"><span class="pre">[a,</span> <span class="pre">b)</span></code>, and zero elsewhere.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">high</span></code> == <code class="docutils literal notranslate"><span class="pre">low</span></code>, values of <code class="docutils literal notranslate"><span class="pre">low</span></code> will be returned.
+If <code class="docutils literal notranslate"><span class="pre">high</span></code> &lt; <code class="docutils literal notranslate"><span class="pre">low</span></code>, the results are officially undefined
+and may eventually raise an error, i.e. do not rely on this
+function to behave when passed arguments satisfying that
+inequality condition.</p>
+<p class="rubric">Examples</p>
+<p>Draw samples from the distribution:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">0</span><span class="p">,</span><span class="mi">1000</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>All values are within the given interval:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">s</span> <span class="o">&gt;=</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="go">True</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">s</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+<span class="go">True</span>
+</pre></div>
+</div>
+<p>Display the histogram of the samples, along with the
+probability density function:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">count</span><span class="p">,</span> <span class="n">bins</span><span class="p">,</span> <span class="n">ignored</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">hist</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="n">density</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">bins</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">bins</span><span class="p">),</span> <span class="n">linewidth</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;r&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</div>
+<div class="section" id="module-cpnest.parameter">
+<span id="cpnest-parameter-module"></span><h2>cpnest.parameter module<a class="headerlink" href="#module-cpnest.parameter" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="cpnest.parameter.LivePoint">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.parameter.</code><code class="sig-name descname">LivePoint</code><a class="headerlink" href="#cpnest.parameter.LivePoint" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Class defining a live point.
+Initialisation arguments:
+names: names of parameters
+d: (optional) an array for initialisation
+logL: (optional) log likelihood of this sample
+logP: (optional) log prior of this sample</p>
+<dl class="method">
+<dt id="cpnest.parameter.LivePoint.asnparray">
+<code class="sig-name descname">asnparray</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#cpnest.parameter.LivePoint.asnparray" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the sample as a numpy record array</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.parameter.LivePoint.bounds">
+<code class="sig-name descname">bounds</code><a class="headerlink" href="#cpnest.parameter.LivePoint.bounds" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.parameter.LivePoint.copy">
+<code class="sig-name descname">copy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#cpnest.parameter.LivePoint.copy" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a copy of the current live point</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.parameter.LivePoint.dimension">
+<code class="sig-name descname">dimension</code><a class="headerlink" href="#cpnest.parameter.LivePoint.dimension" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.parameter.LivePoint.keys">
+<code class="sig-name descname">keys</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#cpnest.parameter.LivePoint.keys" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.parameter.LivePoint.logL">
+<code class="sig-name descname">logL</code><a class="headerlink" href="#cpnest.parameter.LivePoint.logL" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.parameter.LivePoint.logP">
+<code class="sig-name descname">logP</code><a class="headerlink" href="#cpnest.parameter.LivePoint.logP" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.parameter.LivePoint.names">
+<code class="sig-name descname">names</code><a class="headerlink" href="#cpnest.parameter.LivePoint.names" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.parameter.LivePoint.values">
+<code class="sig-name descname">values</code><a class="headerlink" href="#cpnest.parameter.LivePoint.values" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.parameter.rebuild_livepoint">
+<code class="sig-prename descclassname">cpnest.parameter.</code><code class="sig-name descname">rebuild_livepoint</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#cpnest.parameter.rebuild_livepoint" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-cpnest.plot">
+<span id="cpnest-plot-module"></span><h2>cpnest.plot module<a class="headerlink" href="#module-cpnest.plot" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="cpnest.plot.plot_chain">
+<code class="sig-prename descclassname">cpnest.plot.</code><code class="sig-name descname">plot_chain</code><span class="sig-paren">(</span><em class="sig-param">x</em>, <em class="sig-param">name=None</em>, <em class="sig-param">filename=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/plot.html#plot_chain"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.plot.plot_chain" title="Permalink to this definition">¶</a></dt>
+<dd><p>Produce a trace plot</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.plot.plot_corner">
+<code class="sig-prename descclassname">cpnest.plot.</code><code class="sig-name descname">plot_corner</code><span class="sig-paren">(</span><em class="sig-param">xs</em>, <em class="sig-param">filename=None</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/plot.html#plot_corner"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.plot.plot_corner" title="Permalink to this definition">¶</a></dt>
+<dd><p>Produce a corner plot</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.plot.plot_hist">
+<code class="sig-prename descclassname">cpnest.plot.</code><code class="sig-name descname">plot_hist</code><span class="sig-paren">(</span><em class="sig-param">x</em>, <em class="sig-param">name=None</em>, <em class="sig-param">filename=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/plot.html#plot_hist"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.plot.plot_hist" title="Permalink to this definition">¶</a></dt>
+<dd><p>Produce a histogram</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-cpnest.proposal">
+<span id="cpnest-proposal-module"></span><h2>cpnest.proposal module<a class="headerlink" href="#module-cpnest.proposal" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="cpnest.proposal.ConstrainedLeapFrog">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">ConstrainedLeapFrog</code><span class="sig-paren">(</span><em class="sig-param">model=None</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ConstrainedLeapFrog"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ConstrainedLeapFrog" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.LeapFrog" title="cpnest.proposal.LeapFrog"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.LeapFrog</span></code></a></p>
+<p>Leap frog integrator proposal for a costrained
+(logLmin defines a reflective boundary)
+Hamiltonian Monte Carlo step.</p>
+<dl class="method">
+<dt id="cpnest.proposal.ConstrainedLeapFrog.evolve_trajectory">
+<code class="sig-name descname">evolve_trajectory</code><span class="sig-paren">(</span><em class="sig-param">p0</em>, <em class="sig-param">q0</em>, <em class="sig-param">logLmin</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ConstrainedLeapFrog.evolve_trajectory"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ConstrainedLeapFrog.evolve_trajectory" title="Permalink to this definition">¶</a></dt>
+<dd><p>Evolve point according to Hamiltonian method in
+<a class="reference external" href="https://arxiv.org/pdf/1005.0157.pdf">https://arxiv.org/pdf/1005.0157.pdf</a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>p0</strong> (<a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a>) – momentum</p></li>
+<li><p><strong>q0</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – position</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>p</strong> (<a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a> updated momentum vector)</p></li>
+<li><p><strong>q</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – position</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.ConstrainedLeapFrog.get_sample">
+<code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">q0</em>, <em class="sig-param">logLmin=-inf</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ConstrainedLeapFrog.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ConstrainedLeapFrog.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate new sample with constrained HMC, starting at q0.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>q0</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – position</p></li>
+<li><p><strong>logLmin</strong> (<em>hard likelihood boundary</em>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>q</strong> – position</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.DefaultProposalCycle">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">DefaultProposalCycle</code><a class="reference internal" href="_modules/cpnest/proposal.html#DefaultProposalCycle"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.DefaultProposalCycle" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.ProposalCycle" title="cpnest.proposal.ProposalCycle"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.ProposalCycle</span></code></a></p>
+<p>A default proposal cycle that uses the
+<a class="reference internal" href="#cpnest.proposal.EnsembleWalk" title="cpnest.proposal.EnsembleWalk"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleWalk</span></code></a>, <a class="reference internal" href="#cpnest.proposal.EnsembleStretch" title="cpnest.proposal.EnsembleStretch"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleStretch</span></code></a>,
+<a class="reference internal" href="#cpnest.proposal.DifferentialEvolution" title="cpnest.proposal.DifferentialEvolution"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposal.DifferentialEvolution</span></code></a>, <a class="reference internal" href="#cpnest.proposal.EnsembleEigenVector" title="cpnest.proposal.EnsembleEigenVector"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleEigenVector</span></code></a>
+ensemble proposals.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.DifferentialEvolution">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">DifferentialEvolution</code><a class="reference internal" href="_modules/cpnest/proposal.html#DifferentialEvolution"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.DifferentialEvolution" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.EnsembleProposal" title="cpnest.proposal.EnsembleProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleProposal</span></code></a></p>
+<p>Differential evolution move:
+Draws a step by taking the difference vector between two points in the
+ensemble and adding it to the current point.
+See e.g. Exercise 30.12, p.398 in MacKay’s book
+<a class="reference external" href="http://www.inference.phy.cam.ac.uk/mackay/itila/">http://www.inference.phy.cam.ac.uk/mackay/itila/</a></p>
+<p>We add a small perturbation around the exact step</p>
+<dl class="method">
+<dt id="cpnest.proposal.DifferentialEvolution.get_sample">
+<code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">old</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#DifferentialEvolution.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.DifferentialEvolution.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>old</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>out</strong></p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.DifferentialEvolution.log_J">
+<code class="sig-name descname">log_J</code><em class="property"> = 0.0</em><a class="headerlink" href="#cpnest.proposal.DifferentialEvolution.log_J" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.EnsembleEigenVector">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">EnsembleEigenVector</code><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleEigenVector"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.EnsembleProposal" title="cpnest.proposal.EnsembleProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleProposal</span></code></a></p>
+<p>A jump along a randomly-chosen eigenvector
+of the covariance matrix of the ensemble</p>
+<dl class="attribute">
+<dt id="cpnest.proposal.EnsembleEigenVector.covariance">
+<code class="sig-name descname">covariance</code><em class="property"> = None</em><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector.covariance" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.EnsembleEigenVector.eigen_values">
+<code class="sig-name descname">eigen_values</code><em class="property"> = None</em><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector.eigen_values" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.EnsembleEigenVector.eigen_vectors">
+<code class="sig-name descname">eigen_vectors</code><em class="property"> = None</em><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector.eigen_vectors" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.EnsembleEigenVector.get_sample">
+<code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">old</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleEigenVector.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><p>Propose a jump along a random eigenvector
+:param old:
+:type old: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><strong>out</strong></p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.EnsembleEigenVector.log_J">
+<code class="sig-name descname">log_J</code><em class="property"> = 0.0</em><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector.log_J" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.EnsembleEigenVector.set_ensemble">
+<code class="sig-name descname">set_ensemble</code><span class="sig-paren">(</span><em class="sig-param">ensemble</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleEigenVector.set_ensemble"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector.set_ensemble" title="Permalink to this definition">¶</a></dt>
+<dd><p>Over-ride default set_ensemble so that the
+eigenvectors are recomputed when it is updated</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.EnsembleEigenVector.update_eigenvectors">
+<code class="sig-name descname">update_eigenvectors</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleEigenVector.update_eigenvectors"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleEigenVector.update_eigenvectors" title="Permalink to this definition">¶</a></dt>
+<dd><p>Recompute the eigenvectors and eigevalues
+of the covariance matrix of the ensemble</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.EnsembleProposal">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">EnsembleProposal</code><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleProposal"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleProposal" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.Proposal" title="cpnest.proposal.Proposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.Proposal</span></code></a></p>
+<p>Base class for ensemble proposals</p>
+<dl class="attribute">
+<dt id="cpnest.proposal.EnsembleProposal.ensemble">
+<code class="sig-name descname">ensemble</code><em class="property"> = None</em><a class="headerlink" href="#cpnest.proposal.EnsembleProposal.ensemble" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.EnsembleProposal.set_ensemble">
+<code class="sig-name descname">set_ensemble</code><span class="sig-paren">(</span><em class="sig-param">ensemble</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleProposal.set_ensemble"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleProposal.set_ensemble" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the ensemble of points to use</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.EnsembleStretch">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">EnsembleStretch</code><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleStretch"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleStretch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.EnsembleProposal" title="cpnest.proposal.EnsembleProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleProposal</span></code></a></p>
+<p>The Ensemble “stretch” move from Goodman &amp; Weare
+<a class="reference external" href="http://dx.doi.org/10.2140/camcos.2010.5.65">http://dx.doi.org/10.2140/camcos.2010.5.65</a></p>
+<dl class="method">
+<dt id="cpnest.proposal.EnsembleStretch.get_sample">
+<code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">old</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleStretch.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleStretch.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>old</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>out</strong></p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.EnsembleWalk">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">EnsembleWalk</code><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleWalk"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleWalk" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.EnsembleProposal" title="cpnest.proposal.EnsembleProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleProposal</span></code></a></p>
+<p>The Ensemble “walk” move from Goodman &amp; Weare
+<a class="reference external" href="http://dx.doi.org/10.2140/camcos.2010.5.65">http://dx.doi.org/10.2140/camcos.2010.5.65</a></p>
+<p>Draws a step by evolving along the
+direction of the center of mass of
+3 points in the ensemble.</p>
+<dl class="attribute">
+<dt id="cpnest.proposal.EnsembleWalk.Npoints">
+<code class="sig-name descname">Npoints</code><em class="property"> = 3</em><a class="headerlink" href="#cpnest.proposal.EnsembleWalk.Npoints" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.EnsembleWalk.get_sample">
+<code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">old</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#EnsembleWalk.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.EnsembleWalk.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>old</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>out</strong></p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.EnsembleWalk.log_J">
+<code class="sig-name descname">log_J</code><em class="property"> = 0.0</em><a class="headerlink" href="#cpnest.proposal.EnsembleWalk.log_J" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.HamiltonianProposal">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">HamiltonianProposal</code><span class="sig-paren">(</span><em class="sig-param">model=None</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.EnsembleEigenVector" title="cpnest.proposal.EnsembleEigenVector"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleEigenVector</span></code></a></p>
+<p>Base class for hamiltonian proposals</p>
+<dl class="method">
+<dt id="cpnest.proposal.HamiltonianProposal.gradient">
+<code class="sig-name descname">gradient</code><span class="sig-paren">(</span><em class="sig-param">q</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal.gradient"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.gradient" title="Permalink to this definition">¶</a></dt>
+<dd><p>return the gradient of the potential function as numpy ndarray
+:param q: position
+:type q: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><strong>dV</strong></p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a> gradient evaluated at q</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.HamiltonianProposal.inverse_mass_matrix">
+<code class="sig-name descname">inverse_mass_matrix</code><em class="property"> = None</em><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.inverse_mass_matrix" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.HamiltonianProposal.kinetic_energy">
+<code class="sig-name descname">kinetic_energy</code><span class="sig-paren">(</span><em class="sig-param">p</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal.kinetic_energy"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.kinetic_energy" title="Permalink to this definition">¶</a></dt>
+<dd><p>kinetic energy part for the Hamiltonian.
+:param p: momentum
+:type p: <a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><strong>T</strong></p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><dl class="field-list simple">
+<dt class="field-odd">float</dt>
+<dd class="field-odd"><p>kinetic energy</p>
+</dd>
+</dl>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.HamiltonianProposal.mass_matrix">
+<code class="sig-name descname">mass_matrix</code><em class="property"> = None</em><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.mass_matrix" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.HamiltonianProposal.momenta_distribution">
+<code class="sig-name descname">momenta_distribution</code><em class="property"> = None</em><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.momenta_distribution" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.HamiltonianProposal.set_ensemble">
+<code class="sig-name descname">set_ensemble</code><span class="sig-paren">(</span><em class="sig-param">ensemble</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal.set_ensemble"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.set_ensemble" title="Permalink to this definition">¶</a></dt>
+<dd><p>override the set ensemble method
+to update masses, momenta distribution
+and to heuristically estimate the normal vector to the
+hard boundary defined by logLmin.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.HamiltonianProposal.unit_normal">
+<code class="sig-name descname">unit_normal</code><span class="sig-paren">(</span><em class="sig-param">q</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal.unit_normal"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.unit_normal" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the unit normal to the iso-Likelihood surface
+at x, obtained from the spline interpolation of the
+directional derivatives of the likelihood
+:param q: position
+:type q: <a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p><strong>n</strong></p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a> unit normal to the logLmin contour evaluated at q</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.HamiltonianProposal.update_mass">
+<code class="sig-name descname">update_mass</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal.update_mass"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.update_mass" title="Permalink to this definition">¶</a></dt>
+<dd><p>Update the mass matrix (covariance matrix) and
+inverse mass matrix (precision matrix)
+from the ensemble, allowing for correlated momenta</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.HamiltonianProposal.update_momenta_distribution">
+<code class="sig-name descname">update_momenta_distribution</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal.update_momenta_distribution"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.update_momenta_distribution" title="Permalink to this definition">¶</a></dt>
+<dd><p>update the momenta distribution using the
+mass matrix (precision matrix of the ensemble).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.HamiltonianProposal.update_normal_vector">
+<code class="sig-name descname">update_normal_vector</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposal.update_normal_vector"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposal.update_normal_vector" title="Permalink to this definition">¶</a></dt>
+<dd><p>update the constraint by approximating the
+loglikelihood hypersurface as a spline in
+each dimension.
+This is an approximation which
+improves as the algorithm proceeds</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.HamiltonianProposalCycle">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">HamiltonianProposalCycle</code><span class="sig-paren">(</span><em class="sig-param">model=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#HamiltonianProposalCycle"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.HamiltonianProposalCycle" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.ProposalCycle" title="cpnest.proposal.ProposalCycle"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.ProposalCycle</span></code></a></p>
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.LeapFrog">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">LeapFrog</code><span class="sig-paren">(</span><em class="sig-param">model=None</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#LeapFrog"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.LeapFrog" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.HamiltonianProposal" title="cpnest.proposal.HamiltonianProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.HamiltonianProposal</span></code></a></p>
+<p>Leap frog integrator proposal for an unconstrained
+Hamiltonian Monte Carlo step</p>
+<dl class="method">
+<dt id="cpnest.proposal.LeapFrog.evolve_trajectory">
+<code class="sig-name descname">evolve_trajectory</code><span class="sig-paren">(</span><em class="sig-param">p0</em>, <em class="sig-param">q0</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#LeapFrog.evolve_trajectory"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.LeapFrog.evolve_trajectory" title="Permalink to this definition">¶</a></dt>
+<dd><p>Hamiltonian leap frog trajectory subject to the
+hard boundary defined by the parameters prior bounds.
+<a class="reference external" href="https://arxiv.org/pdf/1206.1901.pdf">https://arxiv.org/pdf/1206.1901.pdf</a></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>p0</strong> (<a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a>) – momentum</p></li>
+<li><p><strong>q0</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – position</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>p</strong> (<a class="reference external" href="https://docs.scipy.org/doc/numpy/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v1.17)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numpy.ndarray</span></code></a> updated momentum vector)</p></li>
+<li><p><strong>q</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – position</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.LeapFrog.get_sample">
+<code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">q0</em>, <em class="sig-param">*args</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#LeapFrog.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.LeapFrog.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><p>Propose a new sample, starting at q0</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>q0</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – position</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>q</strong> – position</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.Proposal">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">Proposal</code><a class="reference internal" href="_modules/cpnest/proposal.html#Proposal"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.Proposal" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Base abstract class for jump proposals</p>
+<dl class="method">
+<dt id="cpnest.proposal.Proposal.get_sample">
+<em class="property">abstract </em><code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">old</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#Proposal.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.Proposal.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a new proposed sample given the old one.
+Must be implemented by user</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>old</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>out</strong></p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.Proposal.log_J">
+<code class="sig-name descname">log_J</code><em class="property"> = 0.0</em><a class="headerlink" href="#cpnest.proposal.Proposal.log_J" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.proposal.ProposalCycle">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.proposal.</code><code class="sig-name descname">ProposalCycle</code><span class="sig-paren">(</span><em class="sig-param">proposals</em>, <em class="sig-param">weights</em>, <em class="sig-param">cyclelength=100</em>, <em class="sig-param">*args</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ProposalCycle"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ProposalCycle" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.proposal.EnsembleProposal" title="cpnest.proposal.EnsembleProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.proposal.EnsembleProposal</span></code></a></p>
+<p>A proposal that cycles through a list of
+jumps.</p>
+<p>Initialisation arguments:</p>
+<p>proposals : A list of jump proposals
+weights   : Weights for each type of jump</p>
+<p>Optional arguments:
+cyclelength : length of the proposal cycle. Default: 100</p>
+<dl class="attribute">
+<dt id="cpnest.proposal.ProposalCycle.N">
+<code class="sig-name descname">N</code><em class="property"> = 0</em><a class="headerlink" href="#cpnest.proposal.ProposalCycle.N" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.ProposalCycle.add_proposal">
+<code class="sig-name descname">add_proposal</code><span class="sig-paren">(</span><em class="sig-param">proposal</em>, <em class="sig-param">weight</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ProposalCycle.add_proposal"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ProposalCycle.add_proposal" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.ProposalCycle.get_sample">
+<code class="sig-name descname">get_sample</code><span class="sig-paren">(</span><em class="sig-param">old</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ProposalCycle.get_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ProposalCycle.get_sample" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a new proposed sample given the old one.
+Must be implemented by user</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>old</strong> (<a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a>) – </p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><strong>out</strong></p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cpnest.parameter.LivePoint" title="cpnest.parameter.LivePoint"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.parameter.LivePoint</span></code></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="cpnest.proposal.ProposalCycle.idx">
+<code class="sig-name descname">idx</code><em class="property"> = 0</em><a class="headerlink" href="#cpnest.proposal.ProposalCycle.idx" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.ProposalCycle.normalise_weights">
+<code class="sig-name descname">normalise_weights</code><span class="sig-paren">(</span><em class="sig-param">weights</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ProposalCycle.normalise_weights"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ProposalCycle.normalise_weights" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.ProposalCycle.set_cycle">
+<code class="sig-name descname">set_cycle</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ProposalCycle.set_cycle"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ProposalCycle.set_cycle" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.ProposalCycle.set_ensemble">
+<code class="sig-name descname">set_ensemble</code><span class="sig-paren">(</span><em class="sig-param">ensemble</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/proposal.html#ProposalCycle.set_ensemble"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.proposal.ProposalCycle.set_ensemble" title="Permalink to this definition">¶</a></dt>
+<dd><p>Updates the ensemble statistics
+by calling it on each <a class="reference internal" href="#cpnest.proposal.EnsembleProposal" title="cpnest.proposal.EnsembleProposal"><code class="xref py py-obj docutils literal notranslate"><span class="pre">EnsembleProposal</span></code></a></p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.proposal.ProposalCycle.weights">
+<em class="property">property </em><code class="sig-name descname">weights</code><a class="headerlink" href="#cpnest.proposal.ProposalCycle.weights" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-cpnest.sampler">
+<span id="cpnest-sampler-module"></span><h2>cpnest.sampler module<a class="headerlink" href="#module-cpnest.sampler" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="cpnest.sampler.HamiltonianMonteCarloSampler">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.sampler.</code><code class="sig-name descname">HamiltonianMonteCarloSampler</code><span class="sig-paren">(</span><em class="sig-param">usermodel</em>, <em class="sig-param">maxmcmc</em>, <em class="sig-param">seed=None</em>, <em class="sig-param">output=None</em>, <em class="sig-param">verbose=False</em>, <em class="sig-param">poolsize=1000</em>, <em class="sig-param">proposal=None</em>, <em class="sig-param">resume_file=None</em>, <em class="sig-param">manager=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#HamiltonianMonteCarloSampler"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.HamiltonianMonteCarloSampler" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.sampler.Sampler" title="cpnest.sampler.Sampler"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.sampler.Sampler</span></code></a></p>
+<p>HamiltonianMonteCarlo acceptance rule
+for <a class="reference internal" href="#cpnest.proposal.HamiltonianProposal" title="cpnest.proposal.HamiltonianProposal"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposal.HamiltonianProposal</span></code></a></p>
+<dl class="method">
+<dt id="cpnest.sampler.HamiltonianMonteCarloSampler.yield_sample">
+<code class="sig-name descname">yield_sample</code><span class="sig-paren">(</span><em class="sig-param">logLmin</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#HamiltonianMonteCarloSampler.yield_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.HamiltonianMonteCarloSampler.yield_sample" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.sampler.MetropolisHastingsSampler">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.sampler.</code><code class="sig-name descname">MetropolisHastingsSampler</code><span class="sig-paren">(</span><em class="sig-param">usermodel</em>, <em class="sig-param">maxmcmc</em>, <em class="sig-param">seed=None</em>, <em class="sig-param">output=None</em>, <em class="sig-param">verbose=False</em>, <em class="sig-param">poolsize=1000</em>, <em class="sig-param">proposal=None</em>, <em class="sig-param">resume_file=None</em>, <em class="sig-param">manager=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#MetropolisHastingsSampler"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.MetropolisHastingsSampler" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cpnest.sampler.Sampler" title="cpnest.sampler.Sampler"><code class="xref py py-class docutils literal notranslate"><span class="pre">cpnest.sampler.Sampler</span></code></a></p>
+<p>metropolis-hastings acceptance rule
+for <code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposal.EnembleProposal</span></code></p>
+<dl class="method">
+<dt id="cpnest.sampler.MetropolisHastingsSampler.yield_sample">
+<code class="sig-name descname">yield_sample</code><span class="sig-paren">(</span><em class="sig-param">logLmin</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#MetropolisHastingsSampler.yield_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.MetropolisHastingsSampler.yield_sample" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cpnest.sampler.Sampler">
+<em class="property">class </em><code class="sig-prename descclassname">cpnest.sampler.</code><code class="sig-name descname">Sampler</code><span class="sig-paren">(</span><em class="sig-param">usermodel</em>, <em class="sig-param">maxmcmc</em>, <em class="sig-param">seed=None</em>, <em class="sig-param">output=None</em>, <em class="sig-param">verbose=False</em>, <em class="sig-param">poolsize=1000</em>, <em class="sig-param">proposal=None</em>, <em class="sig-param">resume_file=None</em>, <em class="sig-param">manager=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#Sampler"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.Sampler" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Initialisation arguments:</p>
+<p>args:
+usermodel: <code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.Model</span></code> user defined model to sample</p>
+<dl class="simple">
+<dt>maxmcmc:</dt><dd><dl class="field-list simple">
+<dt class="field-odd">int</dt>
+<dd class="field-odd"><p>maximum number of mcmc steps to be used in the <code class="xref py py-obj docutils literal notranslate"><span class="pre">cnest.sampler.Sampler</span></code></p>
+</dd>
+</dl>
+</dd>
+</dl>
+<p>kwargs:</p>
+<dl>
+<dt>verbose:</dt><dd><dl class="field-list simple">
+<dt class="field-odd">int</dt>
+<dd class="field-odd"><p>display debug information on screen</p>
+</dd>
+</dl>
+<p>Default: 0</p>
+</dd>
+<dt>poolsize:</dt><dd><dl class="field-list simple">
+<dt class="field-odd">int</dt>
+<dd class="field-odd"><p>number of objects for the affine invariant sampling</p>
+</dd>
+</dl>
+<p>Default: 1000</p>
+</dd>
+<dt>seed:</dt><dd><dl class="field-list simple">
+<dt class="field-odd">int</dt>
+<dd class="field-odd"><p>random seed to initialise the pseudo-random chain</p>
+</dd>
+</dl>
+<p>Default: None</p>
+</dd>
+<dt>proposal:</dt><dd><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposals.Proposal</span></code> to use
+Defaults: <code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.proposals.DefaultProposalCycle</span></code>)</p>
+</dd>
+<dt>resume_file:</dt><dd><p>File for checkpointing
+Default: None</p>
+</dd>
+<dt>manager:</dt><dd><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">multiprocessing.Manager</span></code> hosting all communication objects
+Default: None</p>
+</dd>
+</dl>
+<dl class="method">
+<dt id="cpnest.sampler.Sampler.checkpoint">
+<code class="sig-name descname">checkpoint</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#Sampler.checkpoint"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.Sampler.checkpoint" title="Permalink to this definition">¶</a></dt>
+<dd><p>Checkpoint its internal state</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.sampler.Sampler.estimate_nmcmc">
+<code class="sig-name descname">estimate_nmcmc</code><span class="sig-paren">(</span><em class="sig-param">safety=5</em>, <em class="sig-param">tau=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#Sampler.estimate_nmcmc"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.Sampler.estimate_nmcmc" title="Permalink to this definition">¶</a></dt>
+<dd><p>Estimate autocorrelation length of chain using acceptance fraction
+ACL = (2/acc) - 1
+multiplied by a safety margin of 5
+Uses moving average with decay time tau iterations
+(default: <a href="#id1"><span class="problematic" id="id2">:int:`self.poolsize`</span></a>)</p>
+<p>Taken from <a class="reference external" href="http://github.com/farr/Ensemble.jl">http://github.com/farr/Ensemble.jl</a></p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.sampler.Sampler.produce_sample">
+<code class="sig-name descname">produce_sample</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#Sampler.produce_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.Sampler.produce_sample" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="cpnest.sampler.Sampler.reset">
+<code class="sig-name descname">reset</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#Sampler.reset"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.Sampler.reset" title="Permalink to this definition">¶</a></dt>
+<dd><p>Initialise the sampler by generating <a href="#id3"><span class="problematic" id="id4">:int:`poolsize`</span></a> <cite>cpnest.parameter.LivePoint</cite>
+and distributing them according to <a class="reference internal" href="#cpnest.model.Model.log_prior" title="cpnest.model.Model.log_prior"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cpnest.model.Model.log_prior</span></code></a></p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cpnest.sampler.Sampler.resume">
+<em class="property">classmethod </em><code class="sig-name descname">resume</code><span class="sig-paren">(</span><em class="sig-param">resume_file</em>, <em class="sig-param">manager</em>, <em class="sig-param">usermodel</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/cpnest/sampler.html#Sampler.resume"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cpnest.sampler.Sampler.resume" title="Permalink to this definition">¶</a></dt>
+<dd><p>Resumes the interrupted state from a
+checkpoint pickle file.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="cpnest.sampler.random">
+<code class="sig-prename descclassname">cpnest.sampler.</code><code class="sig-name descname">random</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &#x2192; x in the interval [0, 1).<a class="headerlink" href="#cpnest.sampler.random" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-cpnest">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-cpnest" title="Permalink to this headline">¶</a></h2>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">CPNest 0.9.7 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2017-2018, W. Del Pozzo, J. Veitch.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 2.2.0.
+    </div>
+  </body>
+</html>
