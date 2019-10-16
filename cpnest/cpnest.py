@@ -29,7 +29,7 @@ class CPNest(object):
     """
     Class to control CPNest sampler
     cp = CPNest(usermodel,nlive=100,output='./',verbose=0,seed=None,maxmcmc=100,nthreads=None,balanced_sampling = True)
-    
+
     Input variables:
     usermodel : an object inheriting cpnest.model.Model that defines the user's problem
     nlive : Number of live points (100)
@@ -46,7 +46,7 @@ class CPNest(object):
     n_periodic_checkpoint: int
         checkpoint the sampler every n_periodic_checkpoint iterations
         Default: None (disabled)
- 
+
     """
     def __init__(self,
                  usermodel,
@@ -60,6 +60,7 @@ class CPNest(object):
                  nhamiltonian = 0,
                  resume       = False,
                  proposals     = None,
+                 neural_network = False,
                  n_periodic_checkpoint = None):
         if nthreads is None:
             self.nthreads = mp.cpu_count()
@@ -81,7 +82,12 @@ class CPNest(object):
         self.output   = output
         self.poolsize = poolsize
         self.posterior_samples = None
-        self.manager = RunManager(nthreads=self.nthreads)
+        if neural_network:
+            self.neural_network = True
+            nn = 1
+        else:
+            nn = 0
+        self.manager = RunManager(nthreads=self.nthreads-nn)
         self.manager.start()
         self.user     = usermodel
         self.resume = resume
@@ -89,9 +95,12 @@ class CPNest(object):
         if seed is None: self.seed=1234
         else:
             self.seed=seed
-        
+
         self.process_pool = []
-        
+
+        if nthreads == 1 and neural_network:
+            raise RuntimeError("Using neural network requieres more than one thread")
+
         # instantiate the nested sampler class
         resume_file = os.path.join(output, "nested_sampler_resume.pkl")
         if not os.path.exists(resume_file) or resume == False:
@@ -107,7 +116,7 @@ class CPNest(object):
             self.NS = NestedSampler.resume(resume_file, self.manager, self.user)
 
         # instantiate the sampler class
-        for i in range(self.nthreads-nhamiltonian):
+        for i in range(self.nthreads-nhamiltonian-nn):
             resume_file = os.path.join(output, "sampler_{0:d}.pkl".format(i))
             if not os.path.exists(resume_file) or resume == False:
                 sampler = MetropolisHastingsSampler(self.user,
@@ -125,10 +134,10 @@ class CPNest(object):
                                                            self.manager,
                                                            self.user)
 
-            p = mp.Process(target=sampler.produce_sample)
+            p = mp.Process(target=sampler.receiver)
             self.process_pool.append(p)
-        
-        for i in range(self.nthreads-nhamiltonian,self.nthreads):
+
+        for i in range(self.nthreads-nhamiltonian-nn,self.nthreads-nn):
             resume_file = os.path.join(output, "sampler_{0:d}.pkl".format(i))
             if not os.path.exists(resume_file) or resume == False:
                 sampler = HamiltonianMonteCarloSampler(self.user,
@@ -145,8 +154,11 @@ class CPNest(object):
                 sampler = HamiltonianMonteCarloSampler.resume(resume_file,
                                                               self.manager,
                                                               self.user)
-            p = mp.Process(target=sampler.produce_sample)
+            p = mp.Process(target=sampler.receiver)
             self.process_pool.append(p)
+
+        if neural_network:
+            pass
 
     def run(self):
         """
@@ -159,7 +171,7 @@ class CPNest(object):
             signal.signal(signal.SIGINT, sighandler)
             signal.signal(signal.SIGUSR1, sighandler)
             signal.signal(signal.SIGUSR2, sighandler)
-        
+
         #self.p_ns.start()
         for each in self.process_pool:
             each.start()
@@ -173,7 +185,7 @@ class CPNest(object):
 
         self.posterior_samples = self.get_posterior_samples(filename=None)
         if self.verbose>1: self.plot()
-    
+
         #TODO: Clean up the resume pickles
 
     def get_nested_samples(self, filename='nested_samples.dat'):
@@ -245,7 +257,7 @@ class CPNest(object):
 
     def worker_sampler(self, producer_pipe, logLmin):
         cProfile.runctx('self.sampler.produce_sample(producer_pipe, logLmin)', globals(), locals(), 'prof_sampler.prof')
-    
+
     def worker_ns(self):
         cProfile.runctx('self.NS.nested_sampling_loop(self.consumer_pipes)', globals(), locals(), 'prof_nested_sampling.prof')
 

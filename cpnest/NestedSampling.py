@@ -16,8 +16,10 @@ from . import nest2pos
 from .nest2pos import logsubexp
 from operator import attrgetter
 from .cpnest import CheckPoint, RunManager
+from .cpthread import CPCommand
 
 from tqdm import tqdm
+
 
 class _NSintegralState(object):
   """
@@ -56,7 +58,7 @@ class _NSintegralState(object):
         self.info = np.exp(Wt - self.logZ)*logL + np.exp(oldZ - self.logZ)*(self.info + oldZ) - self.logZ
         if isnan(self.info):
             self.info=0
-    
+
     # Update history
     self.logw += logt
     self.iteration += 1
@@ -93,31 +95,31 @@ class NestedSampler(object):
     """
     Nested Sampler class.
     Initialisation arguments:
-    
+
     model: :obj:`cpnest.Model` user defined model
-    
+
     manager: `multiprocessing` manager instance which controls
         the shared objects.
         Default: None
-    
+
     Nlive: int
         number of live points to be used for the integration
         Default: 1024
-    
+
     output: string
         folder where the output will be stored
         Default: None
-        
+
     verbose: int
         0: Nothing
         1: display information on screen
         2: (1) + diagnostic plots
         Default: 1
-        
+
     seed: int
         seed for the initialisation of the pseudorandom chain
         Default: 1234
-    
+
     prior_sampling: boolean
         produce Nlive samples from the prior.
         Default: False
@@ -129,7 +131,7 @@ class NestedSampler(object):
     n_periodic_checkpoint: int
         checkpoint the sampler every n_periodic_checkpoint iterations
         Default: None (disabled)
- 
+
     """
 
     def __init__(self,
@@ -179,7 +181,7 @@ class NestedSampler(object):
     def setup_output(self,output):
         """
         Set up the output folder
-        
+
         -----------
         Parameters:
         output: string
@@ -196,7 +198,7 @@ class NestedSampler(object):
         output_file   = os.path.join(output,chain_filename)
         evidence_file = os.path.join(output,chain_filename+"_evidence.txt")
         resume_file  = os.path.join(output,"nested_sampler_resume.pkl")
-        
+
         return output_file, evidence_file, resume_file
 
 
@@ -234,11 +236,11 @@ class NestedSampler(object):
         logLtmp = []
         for k in self.worst:
             self.state.increment(self.params[k].logL)
-            self.manager.consumer_pipes[k].send(self.params[k])
+            self.manager.consumer_pipes[k].send(CPCommand('sample', self.params[k]))
             self.nested_samples.append(self.params[k])
             logLtmp.append(self.params[k].logL)
         self.condition = logaddexp(self.state.logZ,self.logLmax - self.iteration/(float(self.Nlive))) - self.state.logZ
-        
+
         # Replace the points we just consumed with the next acceptable ones
         # Make sure we are mixing the chains
         np.random.shuffle(self.worst)
@@ -256,7 +258,7 @@ class NestedSampler(object):
                     break
                 else:
                     # resend it to the producer
-                    self.manager.consumer_pipes[self.queue_counter].send(self.params[k])
+                    self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
                     self.rejected += 1
             self.acceptance = float(self.accepted)/float(self.accepted + self.rejected)
             if self.verbose:
@@ -286,7 +288,7 @@ class NestedSampler(object):
         nthreads=self.manager.nthreads
         with tqdm(total=self.Nlive, disable= not self.verbose, desc='CPNEST: populate samplers', position=nthreads) as pbar:
             while i < self.Nlive:
-                for j in range(nthreads): self.manager.consumer_pipes[j].send(self.model.new_point())
+                for j in range(nthreads): self.manager.consumer_pipes[j].send(CPCommand(ctype='sample', payload=self.model.new_point()))
                 for j in range(nthreads):
                     while i < self.Nlive:
                         acceptance,sub_acceptance,self.jumps,self.params[i] = self.manager.consumer_pipes[self.queue_counter].recv()
@@ -299,7 +301,7 @@ class NestedSampler(object):
             sys.stderr.write("\n")
             sys.stderr.flush()
         self.initialised=True
-    
+
     def nested_sampling_loop(self):
         """
         main nested sampling loop
@@ -313,7 +315,7 @@ class NestedSampler(object):
             self.write_evidence_to_file()
             self.logLmin.value = np.inf
             for c in self.manager.consumer_pipes:
-                c.send(None)
+                c.send(CPCommand('exit'))
             print("Nested Sampling process {0!s}, exiting".format(os.getpid()))
             return 0
 
@@ -328,13 +330,13 @@ class NestedSampler(object):
             self.checkpoint()
             # Run each pipe to get it to checkpoint
             for c in self.manager.consumer_pipes:
-                c.send("checkpoint")
+                c.send(CPCommand('checkpoint'))
             sys.exit(130)
 
         # Signal worker threads to exit
         self.logLmin.value = np.inf
         for c in self.manager.consumer_pipes:
-            c.send(None)
+            c.send(CPCommand('exit'))
 
         # final adjustments
         self.params.sort(key=attrgetter('logL'))
@@ -349,7 +351,7 @@ class NestedSampler(object):
         self.write_chain_to_file()
         self.write_evidence_to_file()
         print('Final evidence: {0:0.2f}\nInformation: {1:.2f}'.format(self.state.logZ,self.state.info))
-        
+
         # Some diagnostics
         if self.verbose>1 :
           self.state.plot(os.path.join(self.output_folder,'logXlogL.png'))

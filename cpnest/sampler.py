@@ -10,6 +10,7 @@ from . import parameter
 from .proposal import DefaultProposalCycle
 from . import proposal
 from .cpnest import CheckPoint, RunManager
+from .cpthread import CPThread, CPCommand
 from tqdm import tqdm
 from operator import attrgetter
 
@@ -17,42 +18,42 @@ import pickle
 __checkpoint_flag = False
 
 
-class Sampler(object):
+class Sampler(CPThread):
     """
     Sampler class.
     ---------
-    
+
     Initialisation arguments:
-    
+
     args:
     model: :obj:`cpnest.Model` user defined model to sample
-    
+
     maxmcmc:
         :int: maximum number of mcmc steps to be used in the :obj:`cnest.sampler.Sampler`
-    
+
     ----------
     kwargs:
-    
+
     verbose:
         :int: display debug information on screen
         Default: 0
-    
+
     poolsize:
         :int: number of objects for the affine invariant sampling
         Default: 1000
-    
+
     seed:
         :int: random seed to initialise the pseudo-random chain
         Default: None
-    
+
     proposal:
         :obj:`cpnest.proposals.Proposal` to use
         Defaults: :obj:`cpnest.proposals.DefaultProposalCycle`)
-    
+
     resume_file:
         File for checkpointing
         Default: None
-    
+
     manager:
         :obj:`multiprocessing.Manager` hosting all communication objects
         Default: None
@@ -76,7 +77,7 @@ class Sampler(object):
         self.resume_file = resume_file
         self.manager = manager
         self.logLmin = self.manager.logLmin
-        
+
         if proposal is None:
             self.proposal = DefaultProposalCycle()
         else:
@@ -97,7 +98,35 @@ class Sampler(object):
         self.samples            = [] # the list of samples from the mcmc chain
         self.ACLs               = [] # the history of the ACL of the chain, will be used to thin the output, if requested
         self.producer_pipe, self.thread_id = self.manager.connect_producer()
-        
+
+    def receiver(self):
+        """
+        Receive commands from the main thread and pass to the handler
+        """
+        while True:
+            cmd = self.producer_pipe.recv()
+            end = self.handle_cmd(cmd)
+            if end:
+                break
+
+    def handle_cmd(self, cmd):
+        """
+        Handle an instance of CPCommand
+        """
+        if isinstance(cmd, CPCommand):
+            if cmd.ctype == 'sample':
+                self.produce_sample(cmd.payload)
+                return 0
+            elif cmd.ctype == 'set_weights':
+                return 0
+            elif cmd.ctype == 'exit':
+                self.end_sampling()
+                return 1
+            else:
+                return super(Sampler, self).handle_cmd(cmd)
+        else:
+            raise TypeError("Input command is not an instance of CPCommand: {}".format(cmd))
+
     def reset(self):
         """
         Initialise the sampler by generating :int:`poolsize` `cpnest.parameter.LivePoint`
@@ -133,7 +162,7 @@ class Sampler(object):
         multiplied by a safety margin of 5
         Uses moving average with decay time tau iterations
         (default: :int:`self.poolsize`)
-        
+
         Taken from http://github.com/farr/Ensemble.jl
         """
         if tau is None: tau = self.maxmcmc/safety#self.poolsize
@@ -142,56 +171,56 @@ class Sampler(object):
             self.Nmcmc_exact = (1.0 + 1.0/tau)*self.Nmcmc_exact
         else:
             self.Nmcmc_exact = (1.0 - 1.0/tau)*self.Nmcmc_exact + (safety/tau)*(2.0/self.sub_acceptance - 1.0)
-        
+
         self.Nmcmc_exact = float(min(self.Nmcmc_exact,self.maxmcmc))
         self.Nmcmc = max(safety,int(self.Nmcmc_exact))
 
         return self.Nmcmc
 
-    def produce_sample(self):
+    def produce_sample(self, p):
         try:
-            self._produce_sample()
+            self._produce_sample(p)
         except CheckPoint:
             print("Checkpoint excepted in sampler")
             self.checkpoint()
-    
-    def _produce_sample(self):
+
+    def _produce_sample(self, p):
         """
         main loop that takes the worst :obj:`cpnest.parameter.LivePoint` and
         evolves it. Proposed sample is then sent back
         to :obj:`cpnest.NestedSampler`.
         """
         if not self.initialised:
+            self.counter=1
             self.reset()
 
-        self.counter=1
-        __checkpoint_flag=False
-        while True:
-            
-            if self.manager.checkpoint_flag.value:
-                self.checkpoint()
-                sys.exit(130)
-            
-            if self.logLmin.value==np.inf:
-                break
-            
-            p = self.producer_pipe.recv()
+        __checkpoint_flag=False # what does this do?
 
-            if p is None:
-                break
-            if p == "checkpoint":
-                self.checkpoint()
-                sys.exit(130)
-        
-            self.evolution_points.append(p)
-            (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value))
-            # Send the sample to the Nested Sampler
-            self.producer_pipe.send((self.acceptance,self.sub_acceptance,Nmcmc,outParam))
-            # Update the ensemble every now and again
-            if (self.counter%(self.poolsize))==0:
-                self.proposal.set_ensemble(self.evolution_points)
+        if self.manager.checkpoint_flag.value:
+            self.checkpoint()
+            sys.exit(130)
 
-            self.counter += 1
+        #if self.logLmin.value==np.inf:
+        #    break
+
+        if p is None:
+            raise ValueError("Sampler: p is None")
+        if p == "checkpoint":
+            self.checkpoint()
+            sys.exit(130)
+
+        self.evolution_points.append(p)
+        (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value))
+        # Send the sample to the Nested Sampler
+        self.producer_pipe.send((self.acceptance,self.sub_acceptance,Nmcmc,outParam))
+        # Update the ensemble every now and again
+        if (self.counter%(self.poolsize))==0:
+            self.proposal.set_ensemble(self.evolution_points)
+
+        self.counter += 1
+        return 0
+
+    def end_sampling(self):
 
         sys.stderr.write("Sampler process {0!s}: MCMC samples accumulated = {1:d}\n".format(os.getpid(),len(self.samples)))
         self.samples.extend(self.evolution_points)
@@ -238,7 +267,7 @@ class Sampler(object):
         del state['producer_pipe']
         del state['thread_id']
         return state
-    
+
     def __setstate__(self, state):
         self.__dict__ = state
         self.manager = None
@@ -249,30 +278,30 @@ class MetropolisHastingsSampler(Sampler):
     for :obj:`cpnest.proposal.EnembleProposal`
     """
     def yield_sample(self, logLmin):
-        
+
         while True:
-            
+
             sub_counter = 0
             sub_accepted = 0
             oldparam = self.evolution_points.popleft()
             logp_old = self.model.log_prior(oldparam)
 
             while True:
-                
+
                 sub_counter += 1
                 newparam = self.proposal.get_sample(oldparam.copy())
                 newparam.logP = self.model.log_prior(newparam)
-                
+
                 if newparam.logP-logp_old + self.proposal.log_J > log(random()):
                     newparam.logL = self.model.log_likelihood(newparam)
                     if newparam.logL > logLmin:
                         oldparam = newparam.copy()
                         logp_old = newparam.logP
                         sub_accepted+=1
-            
+
                 if (sub_counter >= self.Nmcmc and sub_accepted > 0 ) or sub_counter >= self.maxmcmc:
                     break
-        
+
             # Put sample back in the stack, unless that sample led to zero accepted points
             self.evolution_points.append(oldparam)
             if self.verbose >=3:
@@ -291,9 +320,9 @@ class HamiltonianMonteCarloSampler(Sampler):
     for :obj:`cpnest.proposal.HamiltonianProposal`
     """
     def yield_sample(self, logLmin):
-        
+
         while True:
-            
+
             sub_accepted    = 0
             sub_counter     = 0
             oldparam        = self.evolution_points.pop()
@@ -302,9 +331,9 @@ class HamiltonianMonteCarloSampler(Sampler):
 
                 sub_counter += 1
                 newparam     = self.proposal.get_sample(oldparam.copy(), logLmin = logLmin)
-                
+
                 if self.proposal.log_J > np.log(random()):
-                    
+
                     if newparam.logL > logLmin:
                         oldparam        = newparam.copy()
                         sub_accepted   += 1
@@ -313,7 +342,7 @@ class HamiltonianMonteCarloSampler(Sampler):
 
             if self.verbose >= 3:
                 self.samples.append(oldparam)
-            
+
             self.sub_acceptance = float(sub_accepted)/float(sub_counter)
             self.mcmc_accepted += sub_accepted
             self.mcmc_counter  += sub_counter
