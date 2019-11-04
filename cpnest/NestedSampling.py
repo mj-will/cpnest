@@ -2,6 +2,7 @@ from __future__ import division, print_function
 import sys
 import os
 import pickle
+import time
 import numpy as np
 import multiprocessing as mp
 from numpy import logaddexp, exp
@@ -143,6 +144,8 @@ class NestedSampler(object):
                  seed           = 1,
                  prior_sampling = False,
                  stopping       = 0.1,
+                 trainer = False,
+                 trainer_type   = None,
                  n_periodic_checkpoint = None):
         """
         Initialise all necessary arguments and
@@ -176,6 +179,8 @@ class NestedSampler(object):
         header.write('\t'.join(self.model.names))
         header.write('\tlogL\n')
         header.close()
+        self.trainer = trainer
+        self.trainer_type = trainer_type
         self.initialised    = False
 
     def setup_output(self,output):
@@ -300,6 +305,11 @@ class NestedSampler(object):
         if self.verbose:
             sys.stderr.write("\n")
             sys.stderr.flush()
+
+        if False:
+            print("Trainer network: Pre-Training on intial live poiints")
+            self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
+            self.manager.training.value = 1
         self.initialised=True
 
     def nested_sampling_loop(self):
@@ -321,11 +331,66 @@ class NestedSampler(object):
 
         try:
             i=0
+            ts = 0    # start time
+            Nsamples = 5000         # Number of samples to train on
+            training_data = list()  # Data that has yet to be trained on
+            retrain = False         # Retrain flag
+            using_fa = False        # using fa instead of analytic likelihood
+            fa_count = 0            # count of points computed with approximator likelihood
+            fa_interval = 500       # number of likelihood evaluations with approximator
             while self.condition > self.tolerance:
+                if self.trainer:
+                    if self.manager.trained.value:
+                        print("Trainer: training complete")
+                        if self.trainer_type == 'function_approximator':
+                            weights_file = self.manager.trainer_consumer_pipe.recv()
+                            for c in self.manager.consumer_pipes:
+                                c.send(CPCommand('set_weights', payload=weights_file))
+                            self.manager.trained.value = 0
+                            self.manager.training.value = 0
+                            if self.manager.use_fa.value:
+                                print("Function approximator: switching to approximate likelihood")
+                                for c in self.manager.consumer_pipes:
+                                    c.send(CPCommand('switch', payload='fa'))
+                                using_fa = True
+                                self.manager.use_fa.value = 0
+                            else:
+                                print("Function approximator: peformance not high enough, retraining")
+                                retrain = True
+                    if (len(self.nested_samples) % Nsamples == 0) or (retrain and (len(self.nested_samples) % Nsamples/2 == 0)):
+                        if not len(self.nested_samples):
+                            pass
+                        elif not self.manager.training.value:
+                            print("Trainer: training")
+                            if len(training_data):
+                                training_data += self.params
+                                self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=training_data))
+                                training_data = list()
+                            else:
+                                self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
+                            self.manager.training.value = 1
+                        else:
+                            training_data += self.params
                 self.consume_sample()
+                if using_fa:
+                    fa_count += 1
+                if fa_count == fa_interval:
+                    print("Function approximator: switching to analytic likelihood")
+                    for c in self.manager.consumer_pipes:
+                        c.send(CPCommand('switch', payload='model'))
+                    using_fa = False
+                    fa_count = 0
+
                 if self.n_periodic_checkpoint is not None and i % self.n_periodic_checkpoint == 1:
                     self.checkpoint()
+
+                if i % 100 == 0 and i:
+                    tf = time.time()
+                    print("Timing: 100 interations took {:.3f}".format(tf-ts))
+                    ts = time.time()
+
                 i += 1
+
         except CheckPoint:
             self.checkpoint()
             # Run each pipe to get it to checkpoint
@@ -337,6 +402,8 @@ class NestedSampler(object):
         self.logLmin.value = np.inf
         for c in self.manager.consumer_pipes:
             c.send(CPCommand('exit'))
+        # signal nn worker thread to exit
+        self.manager.trainer_consumer_pipe.send(CPCommand('exit'))
 
         # final adjustments
         self.params.sort(key=attrgetter('logL'))

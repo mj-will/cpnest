@@ -9,4 +9,6 @@ __all__ = ['model',
            'cpnest',
            'nest2pos',
            'proposal',
-           'plot']
+           'plot',
+           'function_approximator',
+           'fa_utils']

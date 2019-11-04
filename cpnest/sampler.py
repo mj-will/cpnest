@@ -68,7 +68,10 @@ class Sampler(CPThread):
                  poolsize    = 1000,
                  proposal    = None,
                  resume_file = None,
-                 manager     = None):
+                 manager     = None,
+                 trainer_type = None,
+                 trainer_dict = None,
+                 ):
 
         self.seed = seed
         self.model = model
@@ -99,6 +102,13 @@ class Sampler(CPThread):
         self.ACLs               = [] # the history of the ACL of the chain, will be used to thin the output, if requested
         self.producer_pipe, self.thread_id = self.manager.connect_producer()
 
+        self.trainer_type = trainer_type
+        if trainer_type is not None:
+            self.trainer_dict = trainer_dict
+        # set the logL function so it can be swapped
+        self._set_log_likelihood()
+
+
     def receiver(self):
         """
         Receive commands from the main thread and pass to the handler
@@ -118,6 +128,10 @@ class Sampler(CPThread):
                 self.produce_sample(cmd.payload)
                 return 0
             elif cmd.ctype == 'set_weights':
+                self.fa.load_weights(cmd.payload)
+                return 0
+            elif cmd.ctype == 'switch':
+                self.set_proposal_log_likelihood(cmd.payload)
                 return 0
             elif cmd.ctype == 'exit':
                 self.end_sampling()
@@ -132,6 +146,9 @@ class Sampler(CPThread):
         Initialise the sampler by generating :int:`poolsize` `cpnest.parameter.LivePoint`
         and distributing them according to :obj:`cpnest.model.Model.log_prior`
         """
+        if self.trainer_type is not None:
+            if self.trainer_type == 'function_approximator':
+                self.initialise_function_approximator()
         np.random.seed(seed=self.seed)
         for n in tqdm(range(self.poolsize), desc='SMPLR {} init draw'.format(self.thread_id),
                 disable= not self.verbose, position=self.thread_id, leave=False):
@@ -139,7 +156,7 @@ class Sampler(CPThread):
                 p = self.model.new_point()
                 p.logP = self.model.log_prior(p)
                 if np.isfinite(p.logP): break
-            p.logL=self.model.log_likelihood(p)
+            p.logL=self.logL(p)
             if p.logL is None or not np.isfinite(p.logL):
                 print("Warning: received non-finite logL value {0} with parameters {1}".format(str(p.logL), str(p)))
                 print("You may want to check your likelihood function to improve sampling")
@@ -154,6 +171,22 @@ class Sampler(CPThread):
 
         self.proposal.set_ensemble(self.evolution_points)
         self.initialised=True
+
+    def _set_log_likelihood(self):
+        """Set likelihood to default using model"""
+        self.logL = self.model.log_likelihood
+        self.set_proposal_log_likelihood()
+
+    def set_proposal_log_likelihood(self, logL_type='model'):
+        """Switch the likelihood being used"""
+        if logL_type == 'fa':
+            self.proposal_logL = self.fa.predict
+            self.logL_type = 'fa'
+        elif logL_type == 'model':
+            self.proposal_logL = self.model.log_likelihood
+            self.logL_type = 'model'
+        else:
+            raise ValueError("Unknown logL type")
 
     def estimate_nmcmc(self, safety=5, tau=None):
         """
@@ -243,6 +276,20 @@ class Sampler(CPThread):
         with open(self.resume_file, "wb") as f:
             pickle.dump(self, f)
 
+    def initialise_function_approximator(self):
+        """
+        Import functions that use tensorflow and initialise the function approximator
+        """
+        from .fa_utils import set_keras_device
+        set_keras_device("gpu{}".format(0))
+        from .function_approximator import FunctionApproximator
+        self.trainer_dict["parameters"]["tmpdir"] = self.output + "tmpdir_thread" + str(self.thread_id) + "/"
+        self.fa = FunctionApproximator(input_dict=self.trainer_dict, verbose=1)
+        self.fa.setup_normalisation(np.array(self.model.bounds).T, normalise_output=False)
+        # save so it's easier to init other fa
+        #self.fa._make_run_dir()
+        #self.attr_dict = self.fa.save_approximator()    # TODO: Speicify path correctly
+
     @classmethod
     def resume(cls, resume_file, manager, model):
         """
@@ -293,8 +340,9 @@ class MetropolisHastingsSampler(Sampler):
                 newparam.logP = self.model.log_prior(newparam)
 
                 if newparam.logP-logp_old + self.proposal.log_J > log(random()):
-                    newparam.logL = self.model.log_likelihood(newparam)
+                    newparam.logL = self.proposal_logL(newparam)
                     if newparam.logL > logLmin:
+                        newparam.logL = self.logL(newparam)
                         oldparam = newparam.copy()
                         logp_old = newparam.logP
                         sub_accepted+=1

@@ -59,8 +59,10 @@ class CPNest(object):
                  nthreads     = None,
                  nhamiltonian = 0,
                  resume       = False,
-                 proposals     = None,
-                 neural_network = False,
+                 proposals    = None,
+                 trainer_class= None,
+                 trainer_dict = None,
+                 trainer_type = None,
                  n_periodic_checkpoint = None):
         if nthreads is None:
             self.nthreads = mp.cpu_count()
@@ -71,6 +73,7 @@ class CPNest(object):
         from .sampler import HamiltonianMonteCarloSampler, MetropolisHastingsSampler
         from .NestedSampling import NestedSampler
         from .proposal import DefaultProposalCycle, HamiltonianProposalCycle
+        #from .fatrainer import FATrainer
         if proposals is None:
             proposals = dict(mhs=DefaultProposalCycle,
                              hmc=HamiltonianProposalCycle)
@@ -82,15 +85,21 @@ class CPNest(object):
         self.output   = output
         self.poolsize = poolsize
         self.posterior_samples = None
-        if neural_network:
-            self.neural_network = True
-            nn = 1
-        else:
-            nn = 0
-        self.manager = RunManager(nthreads=self.nthreads-nn)
-        self.manager.start()
         self.user     = usermodel
         self.resume = resume
+        if trainer_class is not None:
+            if None in [trainer_class, trainer_dict, trainer_type]:
+                raise ValueError("If using a trainer must specifiy three arguments: trainer_class, trainer_dict, trainer_type")
+            else:
+                self.trainable = True
+        if self.trainable:
+            trainer_count = 1
+            self.manager = RunManager(nthreads=self.nthreads-trainer_count, trainer=True)
+            self.manager.start()
+        else:
+            trainer_count = 0
+            self.manager = RunManager(nthreads=self.nthreads-trainer_count)
+            self.manager.start()
 
         if seed is None: self.seed=1234
         else:
@@ -98,8 +107,8 @@ class CPNest(object):
 
         self.process_pool = []
 
-        if nthreads == 1 and neural_network:
-            raise RuntimeError("Using neural network requieres more than one thread")
+        if nthreads == 1 and self.trainable:
+            raise RuntimeError("Using a trainer requieres more than one thread")
 
         # instantiate the nested sampler class
         resume_file = os.path.join(output, "nested_sampler_resume.pkl")
@@ -111,12 +120,25 @@ class CPNest(object):
                         seed           = self.seed,
                         prior_sampling = False,
                         manager        = self.manager,
+                        trainer = self.trainable,
+                        trainer_type = trainer_type,
                         n_periodic_checkpoint = n_periodic_checkpoint)
         else:
             self.NS = NestedSampler.resume(resume_file, self.manager, self.user)
 
+        # instaniate the neural network if used
+        if self.trainable:
+            if not os.path.exists(resume_file) or resume == False:
+                trainer = trainer_class(trainer_dict,
+                        manager=self.manager,
+                        output=output)
+            else:
+                raise NotImplementedError("Can't restore neural network from resume file")
+
+            self.trainer_process = mp.Process(target=trainer.receiver)
+
         # instantiate the sampler class
-        for i in range(self.nthreads-nhamiltonian-nn):
+        for i in range(self.nthreads-nhamiltonian-trainer_count):
             resume_file = os.path.join(output, "sampler_{0:d}.pkl".format(i))
             if not os.path.exists(resume_file) or resume == False:
                 sampler = MetropolisHastingsSampler(self.user,
@@ -127,7 +149,9 @@ class CPNest(object):
                                   seed        = self.seed+i,
                                   proposal    = proposals['mhs'](),
                                   resume_file = resume_file,
-                                  manager     = self.manager
+                                  manager     = self.manager,
+                                  trainer_type = trainer_type,
+                                  trainer_dict = trainer_dict
                                   )
             else:
                 sampler = MetropolisHastingsSampler.resume(resume_file,
@@ -137,7 +161,7 @@ class CPNest(object):
             p = mp.Process(target=sampler.receiver)
             self.process_pool.append(p)
 
-        for i in range(self.nthreads-nhamiltonian-nn,self.nthreads-nn):
+        for i in range(self.nthreads-nhamiltonian-trainer_count,self.nthreads-trainer_count):
             resume_file = os.path.join(output, "sampler_{0:d}.pkl".format(i))
             if not os.path.exists(resume_file) or resume == False:
                 sampler = HamiltonianMonteCarloSampler(self.user,
@@ -148,7 +172,9 @@ class CPNest(object):
                                   seed        = self.seed+i,
                                   proposal    = proposals['hmc'](model=self.user),
                                   resume_file = resume_file,
-                                  manager     = self.manager
+                                  manager     = self.manager,
+                                  trainer_type = trainer_type,
+                                  trainer_dict = trainer_dict
                                   )
             else:
                 sampler = HamiltonianMonteCarloSampler.resume(resume_file,
@@ -157,8 +183,6 @@ class CPNest(object):
             p = mp.Process(target=sampler.receiver)
             self.process_pool.append(p)
 
-        if neural_network:
-            pass
 
     def run(self):
         """
@@ -173,10 +197,15 @@ class CPNest(object):
             signal.signal(signal.SIGUSR2, sighandler)
 
         #self.p_ns.start()
+        if self.trainable:
+            self.trainer_process.start()
         for each in self.process_pool:
             each.start()
         try:
             self.NS.nested_sampling_loop()
+            if self.trainable:
+                print("Waiting for training to end")
+                self.trainer_process.join()
             for each in self.process_pool:
                 each.join()
         except CheckPoint:
@@ -276,7 +305,7 @@ class CPNest(object):
 
 
 class RunManager(SyncManager):
-    def __init__(self, nthreads=None, **kwargs):
+    def __init__(self, nthreads=None, trainer=False, **kwargs):
         super(RunManager,self).__init__(**kwargs)
         self.nconnected=mp.Value(c_int,0)
         self.producer_pipes = list()
@@ -287,18 +316,32 @@ class RunManager(SyncManager):
             self.consumer_pipes.append(consumer)
         self.logLmin=None
         self.nthreads=nthreads
+        if trainer:
+            self.trainer = True
+            self.trainer_consumer_pipe, self.trainer_producer_pipe = mp.Pipe(duplex=True)
+            self.trained = False
+            self.training = False
+        else:
+            self.trainer = False
 
     def start(self):
         super(RunManager, self).start()
         self.logLmin = mp.Value(c_double,-np.inf)
         self.checkpoint_flag=mp.Value(c_int,0)
+        if self.trainer:
+            self.trained = mp.Value(c_int,0)
+            self.training = mp.Value(c_int,0)
+            self.use_fa = mp.Value(c_int,0)
 
-    def connect_producer(self):
+    def connect_producer(self, trainer=False):
         """
         Returns the producer's end of the pipe
         """
-        with self.nconnected.get_lock():
-            n = self.nconnected.value
-            pipe = self.producer_pipes[n]
-            self.nconnected.value+=1
-        return pipe, n
+        if trainer:
+            return self.trainer_producer_pipe
+        else:
+            with self.nconnected.get_lock():
+                n = self.nconnected.value
+                pipe = self.producer_pipes[n]
+                self.nconnected.value+=1
+            return pipe, n

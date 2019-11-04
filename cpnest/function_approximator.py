@@ -232,6 +232,7 @@ class FunctionApproximator(object):
         x = np.unique(x, axis=0)
         y = np.unique(y)
         idx = np.where(np.abs(y - y.mean()) < 5. * np.std(y))
+        print(idx)
         x = x[idx]
         y = y[idx]
         # shuffle
@@ -244,11 +245,20 @@ class FunctionApproximator(object):
         if accumulate and self._count:
             x_split = [np.concatenate([acc_x, x_tmp], axis=0) for acc_x, x_tmp in zip(self._accumulated_data[0], x_split)]
             y_split = [np.concatenate([acc_y, y_tmp], axis=0) for acc_y, y_tmp in zip(self._accumulated_data[1], y_split)]
-        print(x_split[0].shape, y_split[0].shape)
         # remove any duplicate points from training and validation sets
+        print(len(x_split[0]))
+        y_m = np.concatenate(y_split, axis=0).mean()
+        y_std = np.concatenate(y_split, axis=0).std()
+        y_idx = [np.where(np.abs(tmp_y - y_m) < 4. * y_std) for tmp_y in y_split]
+        for i, y_tmp in enumerate(y_split):
+            y_idx = np.where(np.abs(y_tmp - y_m) < 5. * y_std)
+            x_split[i] = x_split[i][y_idx]
+            y_split[i] = y_split[i][y_idx]
         for i, x_tmp in enumerate(x_split):
             x_split[i], idx = np.unique(x_tmp, axis=0, return_index=True)
             y_split[i] = y_split[i][idx]
+
+        print(len(x_split[0]))
 
         # save processed data if accumulating
         if accumulate is not False:
@@ -291,6 +301,9 @@ class FunctionApproximator(object):
         # cast to float64 since results are loglikelihoods
         # if logL ~ 100, exp(logL) will return inf
         y_pred = np.float64(self.model.predict(self.x_val).ravel())
+        # check difference between predictions and truth
+        true_stats = [np.mean(self.y_val), np.std(self.y_val)]
+        pred_stats = [np.mean(y_pred), np.std(y_pred)]
         # save the x arrays before they're split parameter sets
         results_dict = {"x_train": self.x_train,
                         "x_val": self.x_val,
@@ -311,6 +324,7 @@ class FunctionApproximator(object):
             fig.savefig(block_outdir + "fig.png")
         self.data_all["block{}".format(self._count)] = results_dict
         self._count += 1
+        return true_stats, pred_stats
 
     def load_weights(self, weights_file):
         """Load weights for the model"""
@@ -347,15 +361,16 @@ class FunctionApproximator(object):
         else:
             return output_data
 
-    def _make_run_dir(self):
+    def _make_run_dir(self, run_path=None):
         """Check run count and make outdir"""
-        run = 0
-        while os.path.isdir(self.outdir + 'run{}'.format(run)):
-            run += 1
+        if run_path is None:
+            run = 0
+            while os.path.isdir(self.outdir + 'run{}'.format(run)):
+                run += 1
 
-        run_path = self.outdir + 'run{}/'.format(run)
-        if not os.path.exists(run_path):
-            os.mkdir(run_path)
+            run_path = self.outdir + 'run{}/'.format(run)
+            if not os.path.exists(run_path):
+                os.mkdir(run_path)
         self._run_path = run_path
         return run_path
 
