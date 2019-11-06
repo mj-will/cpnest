@@ -149,6 +149,9 @@ class Sampler(CPThread):
         if self.trainer_type is not None:
             if self.trainer_type == 'function_approximator':
                 self.initialise_function_approximator()
+            else:
+                print("Trainer: trainer is not a function approximator")
+
         np.random.seed(seed=self.seed)
         for n in tqdm(range(self.poolsize), desc='SMPLR {} init draw'.format(self.thread_id),
                 disable= not self.verbose, position=self.thread_id, leave=False):

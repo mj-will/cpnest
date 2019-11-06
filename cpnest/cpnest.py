@@ -73,7 +73,6 @@ class CPNest(object):
         from .sampler import HamiltonianMonteCarloSampler, MetropolisHastingsSampler
         from .NestedSampling import NestedSampler
         from .proposal import DefaultProposalCycle, HamiltonianProposalCycle
-        #from .fatrainer import FATrainer
         if proposals is None:
             proposals = dict(mhs=DefaultProposalCycle,
                              hmc=HamiltonianProposalCycle)
@@ -92,6 +91,9 @@ class CPNest(object):
                 raise ValueError("If using a trainer must specifiy three arguments: trainer_class, trainer_dict, trainer_type")
             else:
                 self.trainable = True
+                print("CPnest Trainer: Trainer enabled")
+        else:
+            self.trainable = False
         if self.trainable:
             trainer_count = 1
             self.manager = RunManager(nthreads=self.nthreads-trainer_count, trainer=True)
@@ -122,6 +124,7 @@ class CPNest(object):
                         manager        = self.manager,
                         trainer = self.trainable,
                         trainer_type = trainer_type,
+                        trainer_dict = trainer_dict,
                         n_periodic_checkpoint = n_periodic_checkpoint)
         else:
             self.NS = NestedSampler.resume(resume_file, self.manager, self.user)

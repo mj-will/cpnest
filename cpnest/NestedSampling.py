@@ -146,6 +146,7 @@ class NestedSampler(object):
                  stopping       = 0.1,
                  trainer = False,
                  trainer_type   = None,
+                 trainer_dict   = None,
                  n_periodic_checkpoint = None):
         """
         Initialise all necessary arguments and
@@ -181,6 +182,11 @@ class NestedSampler(object):
         header.close()
         self.trainer = trainer
         self.trainer_type = trainer_type
+        if trainer:
+            self.n_training_samples = trainer_dict['n_training_samples']
+            if trainer_type == 'function_approximator':
+                self.n_likelihood_evaluations = trainer_dict['n_likelihood_evaluations']
+            print("CPnest Trainer: Training enabled in nested sampling")
         self.initialised    = False
 
     def setup_output(self,output):
@@ -332,14 +338,13 @@ class NestedSampler(object):
         try:
             i=0
             ts = 0    # start time
-            Nsamples = 5000         # Number of samples to train on
             training_data = list()  # Data that has yet to be trained on
             retrain = False         # Retrain flag
             using_fa = False        # using fa instead of analytic likelihood
             fa_count = 0            # count of points computed with approximator likelihood
-            fa_interval = 500       # number of likelihood evaluations with approximator
             while self.condition > self.tolerance:
                 if self.trainer:
+                    #print("CPnest trainer: training statement")
                     if self.manager.trained.value:
                         print("Trainer: training complete")
                         if self.trainer_type == 'function_approximator':
@@ -357,7 +362,13 @@ class NestedSampler(object):
                             else:
                                 print("Function approximator: peformance not high enough, retraining")
                                 retrain = True
-                    if (len(self.nested_samples) % Nsamples == 0) or (retrain and (len(self.nested_samples) % Nsamples/2 == 0)):
+                        elif self.trainer_type == 'flow':
+                            print("Trainer: flows does not affect sampler")
+                            self.manager.trained.value = 0
+                            self.manager.training.value = 0
+                        else:
+                            raise NotImplementedError("Trainer not implemented, choose from function approximator or flow")
+                    if (len(self.nested_samples) % self.n_training_samples == 0) or (retrain and (len(self.nested_samples) % self.n_training_samples/2 == 0)):
                         if not len(self.nested_samples):
                             pass
                         elif not self.manager.training.value:
@@ -374,12 +385,12 @@ class NestedSampler(object):
                 self.consume_sample()
                 if using_fa:
                     fa_count += 1
-                if fa_count == fa_interval:
-                    print("Function approximator: switching to analytic likelihood")
-                    for c in self.manager.consumer_pipes:
-                        c.send(CPCommand('switch', payload='model'))
-                    using_fa = False
-                    fa_count = 0
+                    if fa_count == self.n_likelihood_evaluations:
+                        print("Function approximator: switching to analytic likelihood")
+                        for c in self.manager.consumer_pipes:
+                            c.send(CPCommand('switch', payload='model'))
+                        using_fa = False
+                        fa_count = 0
 
                 if self.n_periodic_checkpoint is not None and i % self.n_periodic_checkpoint == 1:
                     self.checkpoint()
@@ -403,7 +414,9 @@ class NestedSampler(object):
         for c in self.manager.consumer_pipes:
             c.send(CPCommand('exit'))
         # signal nn worker thread to exit
-        self.manager.trainer_consumer_pipe.send(CPCommand('exit'))
+        if self.trainer:
+            print("Trainer: Waiting for training to end")
+            self.manager.trainer_consumer_pipe.send(CPCommand('exit'))
 
         # final adjustments
         self.params.sort(key=attrgetter('logL'))
