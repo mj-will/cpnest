@@ -1,5 +1,6 @@
 from __future__ import division, print_function
 
+import time
 import numpy as np
 from .trainer import Trainer
 
@@ -36,7 +37,9 @@ class FATrainer(Trainer):
             points.append(p.values)
             logL.append(p.logL)
         x, y = np.array(points), np.array(logL)
+        print("Function approximator: Training started at: {}".format(time.asctime()))
         true_stats, pred_stats = self.fa.train_on_data(x, y, accumulate="all", plot=True)
+        print("Function approximator: Training ended at: {}".format(time.asctime()))
 
         mean_ratio = true_stats[0] / pred_stats[0]
         std_ratio = true_stats[1] / pred_stats[1]
