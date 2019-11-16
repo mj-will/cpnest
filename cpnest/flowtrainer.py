@@ -19,8 +19,10 @@ class FlowTrainer(Trainer):
 
         super(FlowTrainer, self).__init__(manager=manager, output=output)
         self.outdir = output
-        self._setup_from_attr_dict(trainer_dict)
+        self.priors = None
         self.intialised = False
+        self.normalise = False
+        self._setup_from_attr_dict(trainer_dict)
 
     def _setup_from_attr_dict(self, attr_dict):
         for key, value in six.iteritems(attr_dict):
@@ -35,18 +37,43 @@ class FlowTrainer(Trainer):
         """
         self.model = FlowModel(device=self.device, **self.model_dict)
         self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-6)
+        if self.priors is not None:
+            print("Flow trainer: setting up normalisation")
+            self.setup_normalisation()
         self.intialised = True
         self.training_count = 0
 
 
-    def train(self, payload):
+    def setup_normalisation(self):
+        """
+        Setup normalisation using the priors
+        """
+        self._prior_max = np.max(self.priors, axis=0)
+        self._prior_min = np.min(self.priors, axis=0)
+        self.normalise = True
 
+
+    def normalise_samples(self, x):
+        """
+        Normalise a set of samples
+        """
+        return (x - self._prior_min) / (self._prior_max - self._prior_min)
+
+
+    def train(self, payload):
+        """
+        Training the flow given a payload of CPnest LivePoints
+        """
         if not self.intialised:
             self.initialise()
         samples = []
         for p in payload:
             samples.append(p.values)
         samples = np.array(samples)
+
+        if self.normalise:
+            print("Using normalisation")
+            samples = self.normalise_samples(samples)
 
         outdir = "{}block{}/".format(self.outdir, self.training_count)
 
