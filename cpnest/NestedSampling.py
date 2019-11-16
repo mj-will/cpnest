@@ -375,13 +375,19 @@ class NestedSampler(object):
                             print("Trainer: training")
                             if len(training_data):
                                 training_data += self.params
+                                if self.trainer_type == 'function_approximator':
+                                    training_data += self.nested_samples[self.n_training_samples:]     # include nested samples exclusing initial batch
                                 self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=training_data))
                                 training_data = list()
                             else:
-                                self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
+                                if self.trainer_type == 'function_approximator':
+                                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params + self.nested_samples))
+                                else:
+                                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
                             self.manager.training.value = 1
                         else:
                             training_data += self.params
+
                 self.consume_sample()
                 if using_fa:
                     fa_count += 1
