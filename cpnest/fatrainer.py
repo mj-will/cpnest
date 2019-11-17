@@ -452,15 +452,6 @@ class FunctionApproximator(object):
 
             return val_loss / len(loader.dataset)
 
-    def plot_comparison(self, y_val, y_pred, block_outdir):
-        """Plot comparison between predictions and input data"""
-        fig = plt.figure()
-        plt.plot(y_val, y_pred, '.')
-        plt.plot([y_val.min(), y_val.max()],[y_val.min(), y_val.max()])
-        np.save(block_outdir + "data.npy", [y_val, y_pred])
-        #plt.plot(self.x_train[:,0], ',')
-        fig.savefig(block_outdir + "fig.png")
-
     def load_weights(self, weights_file):
         """Load weights for the model"""
         self.model.load_state_dict(torch.load(weights_file))
