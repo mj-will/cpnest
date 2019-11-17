@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split
 
 from .trainer import Trainer
 from .flows import FlowModel, BatchNormFlow
+from .plot import plot_corner_contour
 
 
 class FlowTrainer(Trainer):
@@ -79,8 +80,7 @@ class FlowTrainer(Trainer):
 
         if not os.path.isdir(outdir):
             os.mkdir(outdir)
-        fig = corner.corner(samples)
-        fig.savefig(outdir + "input_samples.png")
+        plot_corner_contour(samples, filename=outdir + "input_samples.png")
         # setup data loading
         x_train, x_val = train_test_split(samples, test_size=self.val_size)
         train_tensor = torch.from_numpy(x_train.astype(np.float32))
@@ -115,9 +115,11 @@ class FlowTrainer(Trainer):
         self.training_count += 1
         self.model.load_state_dict(best_model.state_dict())
         # sample for plots
-        self.sample(N=5000, outdir=outdir)
+        output = self.sample(N=5000, outdir=outdir)
 
         self.manager.trained.value = 1
+
+        plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=outdir+"comparison.png")
 
     def _train(self, loader, noise_scale=0.):
 
@@ -179,14 +181,5 @@ class FlowTrainer(Trainer):
 
         z = z.detach().cpu().numpy()
         output = output.detach().cpu().numpy()
+        return output
 
-        fig = corner.corner(output)
-        fig.savefig(outdir + "corner_backwards_pass.png")
-
-        #latent_samples = sample_from_latent(max_radius, n_inputs)
-
-        #output_samples, _ = model(torch.tensor(latent_samples, device=device, dtype=torch.float), mode='inverse')
-        #output_samples = output_samples.detach().cpu().numpy()
-
-        #fig = corner_scatter([output, output_samples] , z=[z, latent_samples])
-        #fig.savefig(self.outdir + "calculated_samples.png")
