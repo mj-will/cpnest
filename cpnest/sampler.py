@@ -283,15 +283,8 @@ class Sampler(CPThread):
         """
         Import functions that use tensorflow and initialise the function approximator
         """
-        from .fa_utils import set_keras_device
-        set_keras_device("gpu{}".format(0))
-        from .function_approximator import FunctionApproximator
-        self.trainer_dict["parameters"]["tmpdir"] = self.output + "tmpdir_thread" + str(self.thread_id) + "/"
-        self.fa = FunctionApproximator(input_dict=self.trainer_dict, verbose=1)
-        self.fa.setup_normalisation(np.array(self.model.bounds).T, normalise_output=False)
-        # save so it's easier to init other fa
-        #self.fa._make_run_dir()
-        #self.attr_dict = self.fa.save_approximator()    # TODO: Speicify path correctly
+        from .fatrainer_torch import FunctionApproximator
+        self.fa = FunctionApproximator(trainer_dict=self.trainer_dict, verbose=1, trainable=False)
 
     @classmethod
     def resume(cls, resume_file, manager, model):

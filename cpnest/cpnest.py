@@ -139,7 +139,6 @@ class CPNest(object):
                 raise NotImplementedError("Can't restore neural network from resume file")
 
             self.trainer_process = mp.Process(target=trainer.receiver)
-
         # instantiate the sampler class
         for i in range(self.nthreads-nhamiltonian-trainer_count):
             resume_file = os.path.join(output, "sampler_{0:d}.pkl".format(i))
