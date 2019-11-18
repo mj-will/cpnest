@@ -82,7 +82,7 @@ class SplitNetwork(nn.Module):
                 if batchnorm:
                     modules[i] += [nn.BatchNorm1d(n_neurons[i][j+1])]
         # layers to go after concat
-        modules[-1] += [nn.Linear(np.sum(n_neurons[i][-1] for i in range(len(n_inputs))), n_neurons[-1][0]), activation_fn()]
+        modules[-1] += [nn.Linear(np.sum(np.fromiter((n_neurons[i][-1] for i in range(len(n_inputs))), int)), n_neurons[-1][0]), activation_fn()]
         for j in range(n_layers[-1] - 1):
             modules[-1] += [nn.Linear(n_neurons[-1][j], n_neurons[-1][j+1]), activation_fn()]
             if dropout is not None:
@@ -133,8 +133,7 @@ class FunctionApproximator(object):
         self.max_epochs = 100
         self.bacth_size = 100
         self.loss = 'MSE'
-        self.device_tag = None
-        self.device = torch.device('cpu')
+
 
         if trainer_dict is not None and attr_dict is not None:
             raise ValueError("Provided both json file and attribute dict, use one or other")
@@ -149,10 +148,9 @@ class FunctionApproximator(object):
         else:
             raise ValueError("No json file or saved FA file for setup")
 
-        if self.device_tag is not None:
-            self.deice = torch.device('cpu')
         if not trainable:
             self.model.eval()
+
 
     def __str__(self):
         args = "".join("{}: {}\n".format(key, value) for key, value in six.iteritems(self.parameters))
@@ -163,6 +161,13 @@ class FunctionApproximator(object):
         """Return the number of input parameters"""
         return np.sum(self.input_shape)
 
+    def set_device(self, device_tag):
+        if device_tag is None:
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(device_tag)
+
+
     def setup_from_dict(self, trainer_dict):
         """Set up the class before training from a dict"""
         if self.model is None:
@@ -171,6 +176,7 @@ class FunctionApproximator(object):
                 setattr(self, key, value)
             if self.trainable:
                 self._setup_directories()
+            self.set_device(self.device_tag)
             self._setup_model(self.model_dict)
             self._setup_optimiser()
             self.input_shape = self.model_dict["n_inputs"]
@@ -197,6 +203,7 @@ class FunctionApproximator(object):
     def _setup_model(self, trainer_dict):
         """Setup up the model"""
         self.model = SplitNetwork(**trainer_dict)
+        self.model.to(self.device)
 
     def _setup_optimiser(self):
         """Setup the optimiser the model"""
@@ -318,7 +325,6 @@ class FunctionApproximator(object):
         # remove any duplicate points from training and validation sets
         y_m = np.concatenate(y_split, axis=0).mean()
         y_std = np.concatenate(y_split, axis=0).std()
-        print(y_m, y_std)
         #y_idx = [np.where(np.abs(tmp_y - y_m) < 5. * y_std) for tmp_y in y_split]
         for i, y_tmp in enumerate(y_split):
             y_idx = np.where(np.abs(y_tmp - y_m) < 5. * y_std)
@@ -393,9 +399,11 @@ class FunctionApproximator(object):
         if self.split:
             x_train_test = self._split_data(train_tensor[0])
             x_test = self._split_data(val_tensor[0])
+            x_train = [x.to(self.device) for x in x_train_test]
+            x_test = [x.to(self.device) for x in x_test]
         else:
-            x_train_test = train_tensor[0]
-            x_test = val_tensor[0]
+            x_train_test = train_tensor[0].to(self.device)
+            x_test = val_tensor[0].to(self.device)
         y_pred = self.model(x_test).detach().cpu().numpy().flatten()
         y_train_pred = self.model(x_train_test).detach().cpu().numpy()
         # load weights from best epoch
@@ -425,12 +433,12 @@ class FunctionApproximator(object):
         train_loss = 0
 
         for idx, data in enumerate(loader):
-            #data = data.to(self.device)
             x, y = data
+            x, y = x.to(self.device), y.to(self.device)
             if self.split:
                 x = self._split_data(x)
             self.optimiser.zero_grad()
-            y_pred = self.model(x)
+            y_pred = self.model(x).flatten()
             loss = self.loss_fn(y_pred, y)
             train_loss += loss.item()
             loss.backward()
@@ -445,9 +453,10 @@ class FunctionApproximator(object):
 
         for idx, data in enumerate(loader):
             x, y = data
+            x, y = x.to(self.device), y.to(self.device)
             if self.split:
                 x = self._split_data(x)
-            y_pred = self.model(x)
+            y_pred = self.model(x).flatten()
             with torch.no_grad():
                 val_loss += self.loss_fn(y_pred, y).item()
 
@@ -535,9 +544,9 @@ class FAPlots(object):
 
     def plot_history(self):
         """Plot losses"""
-        loss = history['loss']
-        val_loss = history['val_loss']
-        epochs = np.arange(1, len(loss), 1)
+        loss = self.history['loss']
+        val_loss = self.history['val_loss']
+        epochs = np.arange(1, len(loss) + 1, 1)
         fig = plt.figure()
         plt.plot(epochs, loss, label='loss')
         plt.plot(epochs, val_loss, label='val. loss')
