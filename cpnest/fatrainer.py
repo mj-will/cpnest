@@ -132,6 +132,7 @@ class FunctionApproximator(object):
         self.split = False
         self.max_epochs = 100
         self.bacth_size = 100
+        self.loss = 'MSE'
         self.device_tag = None
         self.device = torch.device('cpu')
 
@@ -412,7 +413,7 @@ class FunctionApproximator(object):
         if plot:
             plots = FAPlots(outdir=block_outdir, **results_dict)
             plots.plot_comparison()
-            plots.plot_loss()
+            plots.plot_history()
         # add data to data dictionary
         self.data_all["block{}".format(self._count)] = results_dict
         self._count += 1
@@ -519,14 +520,14 @@ class FAPlots(object):
         self.x_val = x_val
         self.y_val = y_val
         self.y_pred = y_pred
-        self.y_train_pred
+        self.y_train_pred = y_train_pred
         self.history = history
         self.parameters = parameters
 
     def plot_comparison(self):
         """Plot comparison between predictions and input data"""
         fig = plt.figure()
-        plt.plot(self.y_val, y_pred, '.')
+        plt.plot(self.y_val, self.y_pred, '.')
         plt.plot([self.y_val.min(), self.y_val.max()],[self.y_val.min(), self.y_val.max()])
         plt.xlabel("True")
         plt.ylabel("predicted")

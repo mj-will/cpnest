@@ -283,7 +283,7 @@ class Sampler(CPThread):
         """
         Import functions that use tensorflow and initialise the function approximator
         """
-        from .fatrainer_torch import FunctionApproximator
+        from .fatrainer import FunctionApproximator
         self.fa = FunctionApproximator(trainer_dict=self.trainer_dict, verbose=1, trainable=False)
 
     @classmethod
