@@ -342,6 +342,7 @@ class NestedSampler(object):
             retrain = False         # Retrain flag
             using_fa = False        # using fa instead of analytic likelihood
             fa_count = 0            # count of points computed with approximator likelihood
+            nthreads=self.manager.nthreads
             while self.condition > self.tolerance:
                 if self.trainer:
                     #print("CPnest trainer: training statement")
@@ -357,6 +358,7 @@ class NestedSampler(object):
                                 print("Function approximator: switching to approximate likelihood")
                                 for c in self.manager.consumer_pipes:
                                     c.send(CPCommand('switch', payload='fa'))
+                                print("Function approxiamtor: using approximate likelihood for {0} iterations".format(self.n_likelihood_evaluations))
                                 using_fa = True
                                 self.manager.use_fa.value = 0
                             else:
@@ -368,7 +370,8 @@ class NestedSampler(object):
                             self.manager.training.value = 0
                         else:
                             raise NotImplementedError("Trainer not implemented, choose from function approximator or flow")
-                    if (len(self.nested_samples) % self.n_training_samples == 0) or (retrain and (len(self.nested_samples) % self.n_training_samples/2 == 0)):
+                    if (len(self.nested_samples) % self.n_training_samples == 0) or retrain:
+                        retrain = False
                         if not len(self.nested_samples):
                             pass
                         elif not self.manager.training.value:
@@ -390,8 +393,8 @@ class NestedSampler(object):
 
                 self.consume_sample()
                 if using_fa:
-                    fa_count += 1
-                    if fa_count == self.n_likelihood_evaluations:
+                    fa_count += 1 * nthreads
+                    if fa_count >= self.n_likelihood_evaluations:
                         print("Function approximator: switching to analytic likelihood")
                         for c in self.manager.consumer_pipes:
                             c.send(CPCommand('switch', payload='model'))
