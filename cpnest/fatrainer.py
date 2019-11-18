@@ -51,12 +51,17 @@ class SplitNetwork(nn.Module):
         modules = list()
 
         modules += [nn.Linear(n_inputs, n_neurons[0]), activation_fn()]
+        if dropout is not None:
+            modules += [nn.Dropout(p=dropout)]
+        if batchnorm:
+            modules += [nn.BatchNorm1d(n_neurons[0])]
         for n in range(n_layers - 1):
             modules += [nn.Linear(n_neurons[n], n_neurons[n+1]), activation_fn()]
             if dropout is not None:
                 modules += [nn.Dropout(p=dropout)]
             if batchnorm:
-                modules += [nn.BatchNorm1d(n_neurons[n+1])]
+                if n + 1 < n_layers -1:
+                    modules += [nn.BatchNorm1d(n_neurons[n+1])]
         modules += [nn.Linear(n_neurons[-1], n_outputs)]
 
         self.modules_list = nn.ModuleList(modules)
@@ -75,6 +80,10 @@ class SplitNetwork(nn.Module):
         # list of modules in the split inputs
         for i in range(len(n_inputs)):
             modules[i] += [nn.Linear(n_inputs[i], n_neurons[i][0]), activation_fn()]
+            if dropout is not None:
+                modules[i] += [nn.Dropout(p=dropout)]
+            if batchnorm:
+                modules[i] += [nn.BatchNorm1d(n_neurons[i][0])]
             for j in range(n_layers[i] - 1):
                 modules[i] += [nn.Linear(n_neurons[i][j], n_neurons[i][j+1]), activation_fn()]
                 if dropout is not None:
@@ -88,11 +97,11 @@ class SplitNetwork(nn.Module):
             if dropout is not None:
                 modules[-1] += [nn.Dropout(p=dropout)]
             if batchnorm:
-                modules[-1] += [nn.BatchNorm1d(n_neurons[-1][j+1])]
+                if j + 1 < len(n_layers[-1]) - 1:
+                    modules[-1] += [nn.BatchNorm1d(n_neurons[-1][j+1])]
 
         modules[-1] += [nn.Linear(n_neurons[-1][-1], n_outputs)]
 
-        #self.modules_list = nn.ModuleList(modules)
         self.modules_list = [nn.ModuleList(m) for m in modules]
         self.all_models = nn.ModuleList([y for x in self.modules_list for y in x])
         self.forward = self._split_forward
@@ -132,6 +141,8 @@ class FunctionApproximator(object):
         self.split = False
         self.max_epochs = 100
         self.bacth_size = 100
+        self.weight_decay = None
+        self.lr = 0.001
         self.loss = 'MSE'
 
 
@@ -208,9 +219,10 @@ class FunctionApproximator(object):
     def _setup_optimiser(self):
         """Setup the optimiser the model"""
         loss_fns = {'MSE': nn.MSELoss(reduction='sum'),
-                    'MAE': nn.L1Loss(reduction='sum')
-                }
-        self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+                    'MAE': nn.L1Loss(reduction='sum')}
+        if self.weight_decay is None:
+            self.weight_decay = 0.
+        self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         self.loss_fn  = loss_fns[self.loss]
 
     def _shuffle_data(self, x, y):
@@ -470,13 +482,14 @@ class FunctionApproximator(object):
     def predict(self, x, return_input=False):
         """Get predictions for a given set of points in parameter space that have not been normalised"""
         # normalise if used in training
+        x = x.values
         if self.normalise:
             x = self._normalise_input_data(x)
         if self.split:
             x = self._split_data(x)
-            x_tensor = [torch.Tensor(a.astype(np.float32)) for a in x]
+            x_tensor = [torch.Tensor(a).to(self.device) for a in x]
         else:
-            x_tensor = torch.Tensor(x.astype(np.float32))
+            x_tensor = torch.Tensor(x).to(self.device)
         y = np.float64(self.model(x_tensor).detach().cpu().numpy())
         # denormalise if output is normalised
         if self.normalise_output:
@@ -536,11 +549,20 @@ class FAPlots(object):
     def plot_comparison(self):
         """Plot comparison between predictions and input data"""
         fig = plt.figure()
+        plt.plot(self.y_train, self.y_train_pred, '.')
+        plt.plot([self.y_train.min(), self.y_train.max()],[self.y_train.min(), self.y_train.max()])
+        plt.xlabel("True")
+        plt.ylabel("Predicted")
+        plt.title("Training data")
+        fig.savefig(self.outdir + "training_predictions.png")
+        fig = plt.figure()
         plt.plot(self.y_val, self.y_pred, '.')
         plt.plot([self.y_val.min(), self.y_val.max()],[self.y_val.min(), self.y_val.max()])
         plt.xlabel("True")
-        plt.ylabel("predicted")
+        plt.ylabel("Predicted")
+        plt.title("Test data")
         fig.savefig(self.outdir + "predictions.png")
+
 
     def plot_history(self):
         """Plot losses"""
