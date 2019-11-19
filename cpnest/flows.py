@@ -341,33 +341,3 @@ class FlowSequential(nn.Sequential):
             cond_inputs = cond_inputs.to(device)
         samples = self.forward(noise, cond_inputs, mode='inverse')[0]
         return samples
-
-class FlowModel(nn.Module):
-    """
-    Builds the sequential flow model with the provided inputs
-
-    Based on SingleSpeed in: https://github.com/adammoss/nnest/blob/master/nnest/networks.py
-    """
-
-    def __init__(self, n_inputs=None, n_hidden=128, n_layers=2, n_blocks=4, device=None):
-        super(FlowModel, self).__init__()
-
-        mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
-
-        layers = []
-        for _ in range(n_blocks):
-            layers += [CouplingLayer(n_inputs, n_hidden, mask, num_layers=n_layers), BatchNormFlow(n_inputs)]
-            mask = 1 - mask
-
-        self.net = FlowSequential(*layers)
-        if device is not None:
-            self.net.to(device)
-
-    def forward(self, inputs, cond_inputs=None, mode='direct', logdets=None):
-        return self.net(inputs, cond_inputs=cond_inputs, mode=mode, logdets=logdets)
-
-    def log_probs(self, inputs, cond_inputs=None):
-        return self.net.log_probs(inputs, cond_inputs=None)
-
-    def sample(self, num_samples=None, noise=None, cond_inputs=None):
-        return self.net.sample(num_samples=num_samples, noise=noise, cond_inputs=cond_inputs)
