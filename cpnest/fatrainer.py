@@ -5,6 +5,7 @@ import six
 import os
 import copy
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from .trainer import Trainer
 
@@ -127,7 +128,7 @@ class SplitNetwork(nn.Module):
 
 class FunctionApproximator(object):
 
-    def __init__(self, trainer_dict=None, attr_dict=None, verbose=1, trainable=True):
+    def __init__(self, trainer_dict=None, attr_dict=None, trainable=True, verbose=1, dev=False):
 
         self.verbose = verbose
         # input independent inits
@@ -143,7 +144,11 @@ class FunctionApproximator(object):
         self.bacth_size = 100
         self.weight_decay = None
         self.lr = 0.001
+        self.lr_patience = None
+        self.scheduler = None
         self.loss = 'MSE'
+
+        self.dev = dev
 
 
         if trainer_dict is not None and attr_dict is not None:
@@ -223,17 +228,22 @@ class FunctionApproximator(object):
         if self.weight_decay is None:
             self.weight_decay = 0.
         self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        if self.lr_patience is not None:
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimiser, patience=self.lr_patience, factor=0.5)
         self.loss_fn  = loss_fns[self.loss]
+
+    def reduce_lr(self):
+        self.orgin_lr = self.lr
 
     def _shuffle_data(self, x, y):
         """Shuffle data"""
         p = np.random.permutation(len(y))
         return x[p], y[p]
 
-    def _setup_input_normalisatiom(self):
+    def _setup_input_normalisation(self):
         """Set up input normalisation from priors"""
-        self._prior_max = np.max(priors, axis=0)
-        self._prior_min = np.min(priors, axis=0)
+        self._prior_max = np.max(self.priors, axis=0)
+        self._prior_min = np.min(self.priors, axis=0)
         self.normalise = True
 
     def _setup_outpt_normalisation(self, f=None, inv_f=None, f_kwargs=None):
@@ -278,11 +288,6 @@ class FunctionApproximator(object):
         """Denormalise the output (normally loglikelihood) using the inverse of the function"""
         return self._output_norm_inv_f(x, **self._output_norm_kwargs)
 
-    @property
-    def _training_parameters(self):
-        """Return a dictionary of the parameters to be passed to model.fit"""
-        return {"epochs": self.parameters["epochs"], "batch_size": self.parameters["batch_size"]}
-
     def _setup_split(self):
         """Enable or disable split"""
         if isinstance(self.input_shape, list):
@@ -299,6 +304,47 @@ class FunctionApproximator(object):
         else:
             x_split = x
         return x_split
+
+    def _plot_input_data(self, Y, block_outdir):
+        """Plot the input data and possible truncations"""
+        y_mean = np.concatenate(Y, axis=0).mean()
+        y_std = np.concatenate(Y, axis=0).std()
+        sigma = [10, 5, 3]
+        fig, axes = plt.subplots(2, 4, figsize=(12, 6), sharex='col')
+        axes[0,0].hist(Y[0], bins=20, density=True, alpha=0.7)
+        axes[1,0].hist(Y[1], bins=20, density=True, alpha=0.7)
+        axes[0,0].set_title('Input data', fontsize=14)
+
+        for i, y in enumerate(Y):
+            for j, s in enumerate(sigma):
+                j += 1
+                if s is not None:
+                    y_trunc = y[np.where(np.abs(y - y_mean) < s * y_std)]
+                else: y_trunc = y
+                axes[i, j].hist(y_trunc, bins=20, density=True, alpha=0.7)
+                if not i:
+                    axes[i,j].set_title(f'Cut at {s}$ sigma$', fontsize=14)
+
+        colours = plt.cm.Dark2(np.linspace(0,1,9))[1:]
+        for ax in axes.ravel():
+            for i, s in enumerate([1, 3, 5, 10]):
+                y_lower = y_mean - s * y_std
+                y_upper = y_mean + s * y_std
+                xlims = ax.get_xlim()
+                if y_lower > xlims[0]:
+                    ax.axvline(x=y_lower, linestyle='--', c=colours[i])
+                if y_upper < xlims[1]:
+                    ax.axvline(x=y_upper, linestyle='--', c=colours[i])
+
+        axes[0,0].set_ylabel('Training data', fontsize=14)
+        axes[1,0].set_ylabel('Validation data', fontsize=14)
+        plt.figtext(0.5, -0.02, 'Log-likelihood', ha='center', fontsize=16)
+        plt.tight_layout()
+        labels = ['1', '3', '5', '10']
+        handles = [mpl.lines.Line2D([0], [0], color=c, lw=2, ls='--') for c in colours[:len(labels)]]
+        leg = plt.legend(handles, labels, loc=(-0.5, -0.35), title='Sigma:', ncol=len(labels), fontsize=12, title_fontsize=12)
+        leg._legend_box.align = "left"
+        fig.savefig(block_outdir + 'input_data.png', bbox_inches='tight')
 
     def train(self, x, y, split=0.8, accumulate=False, plot=False, max_training_data=None):
         """
@@ -322,8 +368,6 @@ class FunctionApproximator(object):
         # remove outliers
         x = np.unique(x, axis=0)
         y = np.unique(y)
-        #idx = np.where(np.abs(y - y.mean()) < 5. * np.std(y))
-        #x, y = x[idx], y[idx]
         # shuffle
         x, y = self._shuffle_data(x, y)
         # split into train/val
@@ -337,14 +381,17 @@ class FunctionApproximator(object):
         # remove any duplicate points from training and validation sets
         y_m = np.concatenate(y_split, axis=0).mean()
         y_std = np.concatenate(y_split, axis=0).std()
-        #y_idx = [np.where(np.abs(tmp_y - y_m) < 5. * y_std) for tmp_y in y_split]
+        for i, x_tmp in enumerate(x_split):
+            x_split[i], idx = np.unique(x_tmp, axis=0, return_index=True)
+            y_split[i] = y_split[i][idx]
+
+        if self.dev:
+            self._plot_input_data(y_split, block_outdir)
+
         for i, y_tmp in enumerate(y_split):
             y_idx = np.where(np.abs(y_tmp - y_m) < 5. * y_std)
             x_split[i] = x_split[i][y_idx]
             y_split[i] = y_split[i][y_idx]
-        for i, x_tmp in enumerate(x_split):
-            x_split[i], idx = np.unique(x_tmp, axis=0, return_index=True)
-            y_split[i] = y_split[i][idx]
 
         # save processed data if accumulating
         if accumulate is not False:
@@ -380,12 +427,18 @@ class FunctionApproximator(object):
         best_val_loss = np.inf
         best_model = copy.deepcopy(self.model)
 
-        history = {"loss": [], "val_loss": []}
+        history = {"loss": [], "val_loss": [], "lr": []}
 
         for epoch in range(1, self.max_epochs + 1):
 
             loss = self._train(train_loader)
             val_loss = self._validate(val_loader)
+
+            if self.scheduler is not None:
+                self.scheduler.step(val_loss)
+                if self.dev:
+                    for pg in self.optimiser.param_groups:
+                        history["lr"].append(pg["lr"])
 
             history["loss"].append(loss)
             history["val_loss"].append(val_loss)
@@ -569,11 +622,27 @@ class FAPlots(object):
         loss = self.history['loss']
         val_loss = self.history['val_loss']
         epochs = np.arange(1, len(loss) + 1, 1)
-        fig = plt.figure()
-        plt.plot(epochs, loss, label='loss')
-        plt.plot(epochs, val_loss, label='val. loss')
-        plt.legend()
-        fig.savefig(self.outdir + "history.png")
+        if len(self.history['lr']):
+            lr = self.history['lr']
+        else:
+            lr = False
+        if lr:
+            fig, axes = plt.subplots(2, 1, sharex=True)
+            axes = axes.ravel()
+        else:
+            fig, axes = plt.subplots(1, 1, sharex=True)
+            axes = [axes]
+        axes[0].plot(epochs, loss, label='loss')
+        axes[0].plot(epochs, val_loss, label='val. loss')
+        if not lr:
+            axes[0].set_xlabel('Epochs')
+        axes[0].set_ylabel('Loss')
+        if lr:
+            axes[1].plot(epochs, lr)
+            axes[1].set_xlabel('Epochs')
+            axes[1].set_ylabel('Learning rate')
+        axes[0].legend()
+        fig.savefig(self.outdir + "history.png", bbox_inches='tight')
 
 class FATrainer(Trainer):
 
