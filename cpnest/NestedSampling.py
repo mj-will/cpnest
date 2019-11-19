@@ -337,12 +337,11 @@ class NestedSampler(object):
 
         try:
             i=0
-            ts = 0    # start time
             training_data = list()  # Data that has yet to be trained on
             retrain = False         # Retrain flag
             using_fa = False        # using fa instead of analytic likelihood
             fa_count = 0            # count of points computed with approximator likelihood
-            nthreads=self.manager.nthreads
+            nthreads = self.manager.nthreads
             while self.condition > self.tolerance:
                 if self.trainer:
                     #print("CPnest trainer: training statement")
@@ -393,7 +392,7 @@ class NestedSampler(object):
 
                 self.consume_sample()
                 if using_fa:
-                    fa_count += 1 * nthreads
+                    fa_count += nthreads
                     if fa_count >= self.n_likelihood_evaluations:
                         print("Function approximator: switching to analytic likelihood")
                         for c in self.manager.consumer_pipes:
@@ -403,11 +402,6 @@ class NestedSampler(object):
 
                 if self.n_periodic_checkpoint is not None and i % self.n_periodic_checkpoint == 1:
                     self.checkpoint()
-
-                if i % 100 == 0 and i:
-                    tf = time.time()
-                    print("Timing: 100 interations took {:.3f}".format(tf-ts))
-                    ts = time.time()
 
                 i += 1
 
