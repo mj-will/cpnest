@@ -579,6 +579,9 @@ class FunctionApproximator(object):
     def save_input(self, d):
         """Save the dictionary used as an inputs as a JSON file"""
         output_file = self.outdir + "trainer_dict.json"
+        for k, v in list(d.items()):
+            if type(v) == np.ndarray:
+                d[k] = np.array_str(d[k])
         with open(output_file, "w") as f:
             json.dump(d, f, indent=4)
 
