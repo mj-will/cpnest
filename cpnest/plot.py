@@ -134,9 +134,6 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
             ax.tick_params(axis='both', direction='in')
             ax.xaxis.set_ticks_position("both")
             ax.yaxis.set_ticks_position("both")
-            if crop_plot:
-                ax.set_xlim([0,1])
-                ax.set_ylim([0,1])
             if j < i:
                 idx = [j, i]
                 # loop over arrays of inputs
@@ -148,14 +145,39 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
                             alpha=0.5, colors=contour_colours[n])
                     cp = ax.contour(X2, Y2, H2.T, V, colors=contour_colours[n], linewidths=2.0)
                     contour_plots.append(cp)
+                if crop_plot:
+                    xlim = ax.get_xlim()
+                    ylim = ax.get_ylim()
+                    if xlim[0] < 0 and xlim[1] > 1:
+                        ax.set_xlim([0,1])
+                    elif xlim[0] < 0:
+                        ax.set_xlim([0, xlim[1]])
+                    elif xlim[1] > 1:
+                        ax.set_ylim([xlim[0], 1])
+                    if ylim[0] < 0 and ylim[1] > 1:
+                        ax.set_ylim([0,1])
+                    elif ylim[0] < 0:
+                        ax.set_ylim([0, ylim[1]])
+                    elif ylim[1] > 1:
+                        ax.set_ylim([ylim[0], 1])
+
             elif j == i:
                 for n, a in enumerate(x):
                     h = a[:, j].T
                     ax.hist(h, density=True, histtype='stepfilled',
                             color=marker_colours[n], alpha=0.5, bins=20)
+                if crop_plot:
+                    xlim = ax.get_xlim()
+                    if xlim[0] < 0 and xlim[1] > 1:
+                        ax.set_xlim([0,1])
+                    elif xlim[0] < 0:
+                        ax.set_xlim([0, xlim[1]])
+                    elif xlim[1] > 1:
+                        ax.set_ylim([xlim[0], 1])
                 ax.set_yticklabels([])
             else:
                 ax.set_axis_off()
+
 
             if i + 1 < N_params:
                 ax.get_shared_x_axes().join(ax, axes[N_params - 1, j])
