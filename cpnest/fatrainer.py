@@ -3,6 +3,7 @@ from __future__ import division, print_function
 import time
 import six
 import os
+import json
 import copy
 import numpy as np
 import matplotlib as mpl
@@ -157,6 +158,7 @@ class FunctionApproximator(object):
         if trainer_dict is not None:
             self.setup_from_dict(trainer_dict)
             self.parameter_names = ["parameter_" + str(i) for i in range(self._n_parameters)]
+            self.save_input(trainer_dict)
         elif attr_dict is not None:
             self.n_inputs = False
             self.setup_from_attr_dict(attr_dict, verbose=verbose)
@@ -573,6 +575,12 @@ class FunctionApproximator(object):
     def save_results(self, fname="results.h5"):
         """Save the results from the complete training process and move to final save directory"""
         deepdish.io.save(self.outdir + fname, self.data_all)
+
+    def save_input(self, d):
+        """Save the dictionary used as an inputs as a JSON file"""
+        output_file = self.outdir + "trainer_dict.json"
+        with open(output_file, "w") as f:
+            json.dump(d, f, indent=4)
 
     def save_approximator(self, fname="fa.pkl"):
         """Save the attributes of the function approximator"""
