@@ -55,7 +55,15 @@ class FlowTrainer(Trainer):
         self.priors = None
         self.intialised = False
         self.normalise = False
+        self.device_tag = 'cpu'
         self._setup_from_input_dict(trainer_dict)
+
+        # default training params
+        self.lr = 0.0001
+        self.val_size = 0.1
+        self.batch_size = 100
+        self.max_epochs = 1000
+        self.patience = 100
 
     def _setup_from_input_dict(self, attr_dict):
         for key, value in six.iteritems(attr_dict):
@@ -98,22 +106,29 @@ class FlowTrainer(Trainer):
         """
         Training the flow given a payload of CPnest LivePoints
         """
-        if not self.intialised:
-            self.initialise()
         samples = []
         for p in payload:
             samples.append(p.values)
         samples = np.array(samples)
 
+        self._train_on_data(samples)
+
+    def _train_on_data(self, samples):
+        """
+        Train the flow on samples
+        """
+        if not self.intialised:
+            self.initialise()
+
         if self.normalise:
             print("Using normalisation")
             samples = self.normalise_samples(samples)
 
-        outdir = "{}block{}/".format(self.outdir, self.training_count)
+        block_outdir = "{}block{}/".format(self.outdir, self.training_count)
 
-        if not os.path.isdir(outdir):
-            os.mkdir(outdir)
-        plot_corner_contour(samples, filename=outdir + "input_samples.png")
+        if not os.path.isdir(block_outdir):
+            os.mkdir(block_outdir)
+        plot_corner_contour(samples, filename=block_outdir + "input_samples.png")
         # setup data loading
         x_train, x_val = train_test_split(samples, test_size=self.val_size)
         train_tensor = torch.from_numpy(x_train.astype(np.float32))
@@ -147,15 +162,17 @@ class FlowTrainer(Trainer):
                 break
         self.training_count += 1
         self.model.load_state_dict(best_model.state_dict())
+        self.weights_file = block_outdir + 'model.pt'
+        torch.save(self.model.state_dict(), self.weights_file)
         # sample for plots
-        output = self.sample(N=5000, outdir=outdir)
+        output = self.sample(N=5000)
         if self.manager is not None:
             self.manager.trained.value = 1
 
-        plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=outdir+"comparison.png")
+        plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
 
     def _train(self, loader, noise_scale=0.):
-
+        """Loop over the data and update the weights"""
         model = self.model
         model.train()
         train_loss = 0
@@ -190,6 +207,7 @@ class FlowTrainer(Trainer):
             return train_loss / len(loader.dataset)
 
     def _validate(self, loader):
+        """Loop over the data and get validation loss"""
         model = self.model
         model.eval()
         val_loss = 0
@@ -208,7 +226,8 @@ class FlowTrainer(Trainer):
 
             return val_loss / len(loader.dataset)
 
-    def sample(self, N=1000, outdir='./'):
+    def sample(self, N=1000):
+        """Produce N samples drawn from the latent space"""
         z = torch.randn(N, self.n_inputs, device=self.device)
         output, _ = self.model(z, mode='inverse')
 
@@ -216,3 +235,9 @@ class FlowTrainer(Trainer):
         output = output.detach().cpu().numpy()
         return output
 
+    def load_weights(self, weights_file):
+        """Load weights for the model"""
+        if not self.initialised:
+            self.initialise()
+        self.model.load_state_dict(torch.load(weights_file))
+        self.model.eval()
