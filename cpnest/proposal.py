@@ -10,6 +10,10 @@ from scipy.signal import savgol_filter
 from scipy.stats import multivariate_normal
 from scipy.special import logsumexp
 
+from cpnest.parameter import LivePoint
+
+import torch
+
 class Proposal(object):
     """
     Base abstract class for jump proposals
@@ -25,7 +29,7 @@ class Proposal(object):
         Parameters
         ----------
         old : :obj:`cpnest.parameter.LivePoint`
-        
+
         Returns
         ----------
         out: :obj:`cpnest.parameter.LivePoint`
@@ -49,10 +53,10 @@ class ProposalCycle(EnsembleProposal):
     jumps.
 
     Initialisation arguments:
-    
+
     proposals : A list of jump proposals
     weights   : Weights for each type of jump
-    
+
     Optional arguments:
     cyclelength : length of the proposal cycle. Default: 100
 
@@ -127,7 +131,7 @@ class EnsembleWalk(EnsembleProposal):
         Parameters
         ----------
         old : :obj:`cpnest.parameter.LivePoint`
-        
+
         Returns
         ----------
         out: :obj:`cpnest.parameter.LivePoint`
@@ -149,7 +153,7 @@ class EnsembleStretch(EnsembleProposal):
         Parameters
         ----------
         old : :obj:`cpnest.parameter.LivePoint`
-        
+
         Returns
         ----------
         out: :obj:`cpnest.parameter.LivePoint`
@@ -181,7 +185,7 @@ class DifferentialEvolution(EnsembleProposal):
         Parameters
         ----------
         old : :obj:`cpnest.parameter.LivePoint`
-        
+
         Returns
         ----------
         out: :obj:`cpnest.parameter.LivePoint`
@@ -221,7 +225,7 @@ class EnsembleEigenVector(EnsembleProposal):
             self.eigen_values = np.atleast_1d(np.var([self.ensemble[j][name] for j in range(n)]))
             self.covariance = self.eigen_values
             self.eigen_vectors = np.eye(1)
-        else:	 
+        else:
             for i,name in enumerate(self.ensemble[0].names):
                 for j in range(n): cov_array[i,j] = self.ensemble[j][name]
             self.covariance = np.cov(cov_array)
@@ -233,7 +237,7 @@ class EnsembleEigenVector(EnsembleProposal):
         Parameters
         ----------
         old : :obj:`cpnest.parameter.LivePoint`
-        
+
         Returns
         ----------
         out: :obj:`cpnest.parameter.LivePoint`
@@ -246,6 +250,86 @@ class EnsembleEigenVector(EnsembleProposal):
             out[n]+=jumpsize*self.eigen_vectors[k,i]
         return out
 
+class FlowProposal(Proposal):
+
+
+    def __init__(self, ndims=None, model=None, names=None):
+        self.model = model                     # Flow model
+        self.ndims = ndims
+        self.mu = np.zeros(self.ndims)
+        self.sigma = np.identity(self.ndims)
+        self.worst_r2 = np.inf
+        self.samples = None                    # Stored samples
+        self.r2 = None                         # Radius squared
+        self.populated = False                 # Is sample list populated
+        self.names = names                     # Names of samples for LivePoint
+
+    @staticmethod
+    def unpack_live_point(point):
+        """Return the necessary information from an instance of cpnest.parameter.LivePoint"""
+        return np.array([point.values])
+
+    def make_live_point(self, point):
+        """Create an instance of LivePoint with the given inputs"""
+        return LivePoint(self.names, d=point)
+
+    def populate(self, point, N=10000):
+        """Populate a pool of latent points"""
+        print("Flow proposal: Populating...")
+        latent_point = self.forward_pass(point)
+        # draw n samples and sort by radius
+        samples = self.draw(self._radius2(latent_point))
+        r2 = self._radius2(samples)
+        idx = np.argsort(r2)
+        self.r2 = r2[idx]
+        print('Radius:', self.r2)
+        self.samples = samples[idx]
+        self.populated = True
+
+    def forward_pass(self, point):
+        """Pass a vector of points through the model"""
+        input_tensor = torch.Tensor(point.astype(np.float32))
+        latent_point, _ = self.model(input_tensor)
+        latent_point = latent_point.detach().cpu().numpy()
+        return np.array(latent_point)
+
+    def backward_pass(self, latent_samples):
+        """A backwards pass from the model (latent -> real)"""
+        input_tensor = torch.Tensor(latent_samples.astype(np.float32))
+        points, _ = self.model(input_tensor, mode='inverse')
+        points = points.detach().cpu().numpy()
+        return points
+
+    def update_model(self, weights_file):
+        """Update the model from a weights file"""
+        self.model.load_state_dict(torch.load(weights_file))
+
+    def _radius2(self, latent_point):
+        """Calculate the radius of a latent_point"""
+        return np.sum(latent_point**2., axis=-1)
+
+    def draw(self, r2, N=10000):
+        """Draw N samples from a region within the worst point"""
+        samples = np.zeros([0, self.ndims])
+        while samples.shape[0] < N:
+            s = np.random.multivariate_normal(self.mu, self.sigma, int(1e5))
+            accepted = s[np.where(np.sum(s**2., axis=1) < r2)]
+            samples = np.concatenate([samples, accepted], axis=0)
+        return samples
+
+    def get_sample(self, old_sample):
+        """Get a new sample within the contour defined by the old sample"""
+        old_sample = self.unpack_live_point(old_sample)
+        old_latent = self.forward_pass(old_sample)
+        old_r2 = self._radius2(old_latent)
+        if not self.populated:
+            self.populate(old_r2)
+        idx = np.argmin(self.r2 < old_r2)
+        new_sample = self.samples[idx]
+        self.r2 = self.r2[:idx]
+        self.samples = self.samples[:idx]
+        return self.make_live_point(new_sample)
+
 
 class DefaultProposalCycle(ProposalCycle):
     """
@@ -255,7 +339,7 @@ class DefaultProposalCycle(ProposalCycle):
     ensemble proposals.
     """
     def __init__(self):
-        
+
         proposals = [EnsembleWalk(),
                      EnsembleStretch(),
                      DifferentialEvolution(),
@@ -286,7 +370,7 @@ class HamiltonianProposal(EnsembleEigenVector):
     mass_matrix = None
     inverse_mass_matrix = None
     momenta_distribution = None
-    
+
     def __init__(self, model=None, **kwargs):
         """
         Initialises the class with the kinetic
@@ -306,7 +390,7 @@ class HamiltonianProposal(EnsembleEigenVector):
         self._initialised   = False
         self.c              = self.counter()
         self.DEBUG          = 0
-    
+
     def set_ensemble(self, ensemble):
         """
         override the set ensemble method
@@ -318,7 +402,7 @@ class HamiltonianProposal(EnsembleEigenVector):
         self.update_mass()
         self.update_normal_vector()
         self.update_momenta_distribution()
-    
+
     def update_normal_vector(self):
         """
         update the constraint by approximating the
@@ -332,7 +416,7 @@ class HamiltonianProposal(EnsembleEigenVector):
         for i,samp in enumerate(self.ensemble):
             tracers_array[i,:] = samp.values
         V_vals = np.atleast_1d([p.logL for p in self.ensemble])
-        
+
         self.normal = []
         for i,x in enumerate(tracers_array.T):
             # sort the values
@@ -380,7 +464,7 @@ class HamiltonianProposal(EnsembleEigenVector):
         ----------
         q : :obj:`cpnest.parameter.LivePoint`
             position
-        
+
         Returns
         ----------
         n: :obj:`numpy.ndarray` unit normal to the logLmin contour evaluated at q
@@ -397,14 +481,14 @@ class HamiltonianProposal(EnsembleEigenVector):
         ----------
         q : :obj:`cpnest.parameter.LivePoint`
             position
-        
+
         Returns
         ----------
         dV: :obj:`numpy.ndarray` gradient evaluated at q
         """
         dV = self.dV(q)
         return dV.view(np.float64)
-        
+
     def update_momenta_distribution(self):
         """
         update the momenta distribution using the
@@ -433,9 +517,9 @@ class HamiltonianProposal(EnsembleEigenVector):
         while the latter sets the trajectory length
         """
         ranges = [self.prior_bounds[j][1] - self.prior_bounds[j][0] for j in range(self.d)]
-        
+
         l, h = np.min(ranges), np.max(ranges)
-        
+
         self.base_L         = 10+int((h/l)*self.d**(1./4.))
         self.base_dt        = (1.0/self.base_L)*l/h
         self._initialised   = True
@@ -470,7 +554,7 @@ class HamiltonianProposal(EnsembleEigenVector):
         ----------
         p : :obj:`numpy.ndarray`
             momentum
-        
+
         Returns
         ----------
         T: :float: kinetic energy
@@ -510,12 +594,12 @@ class LeapFrog(HamiltonianProposal):
     def get_sample(self, q0, *args):
         """
         Propose a new sample, starting at q0
-        
+
         Parameters
         ----------
         q0 : :obj:`cpnest.parameter.LivePoint`
             position
-        
+
         Returns
         ----------
         q: :obj:`cpnest.parameter.LivePoint`
@@ -530,20 +614,20 @@ class LeapFrog(HamiltonianProposal):
         final_energy   = self.hamiltonian(p,q)
         self.log_J = min(0.0, initial_energy-final_energy)
         return q
-    
+
     def evolve_trajectory(self, p0, q0, *args):
         """
         Hamiltonian leap frog trajectory subject to the
         hard boundary defined by the parameters prior bounds.
         https://arxiv.org/pdf/1206.1901.pdf
-        
+
         Parameters
         ----------
         p0 : :obj:`numpy.ndarray`
             momentum
         q0 : :obj:`cpnest.parameter.LivePoint`
             position
-        
+
         Returns
         ----------
         p: :obj:`numpy.ndarray` updated momentum vector
@@ -553,7 +637,7 @@ class LeapFrog(HamiltonianProposal):
         # Updating the momentum a half-step
         p = p0 - 0.5 * self.dt * self.gradient(q0)
         q = q0.copy()
-        
+
         for i in range(self.L):
             # do a step
             for j,k in enumerate(q.names):
@@ -568,7 +652,7 @@ class LeapFrog(HamiltonianProposal):
                     if q[k] < l:
                         q[k] = l + (l - q[k])
                         p[j] *= -1
-        
+
             dV = self.gradient(q)
             # take a full momentum step
             p += - self.dt * dV
@@ -595,21 +679,21 @@ class ConstrainedLeapFrog(LeapFrog):
     def get_sample(self, q0, logLmin=-np.inf):
         """
         Generate new sample with constrained HMC, starting at q0.
-        
+
         Parameters
         ----------
         q0 : :obj:`cpnest.parameter.LivePoint`
             position
-        
+
         logLmin: hard likelihood boundary
-        
+
         Returns
         ----------
         q: :obj:`cpnest.parameter.LivePoint`
             position
         """
         return super(ConstrainedLeapFrog,self).get_sample(q0, logLmin)
-    
+
     def counter(self):
         n = 0
         while True:
@@ -619,7 +703,7 @@ class ConstrainedLeapFrog(LeapFrog):
     def evolve_trajectory_one_step_position(self, p, q):
         """
         One leap frog step in position
-        
+
         Parameters
         ----------
         p0 : :obj:`numpy.ndarray`
@@ -648,7 +732,7 @@ class ConstrainedLeapFrog(LeapFrog):
     def evolve_trajectory_one_step_momentum(self, p, q, logLmin, half = False):
         """
         One leap frog step in momentum
-        
+
         Parameters
         ----------
         p0 : :obj:`numpy.ndarray`
@@ -680,7 +764,7 @@ class ConstrainedLeapFrog(LeapFrog):
     def check_constraint(self, q, logLmin):
         """
         Check the likelihood
-        
+
         Parameters
         ----------
         q0 : :obj:`cpnest.parameter.LivePoint`
@@ -699,14 +783,14 @@ class ConstrainedLeapFrog(LeapFrog):
         """
         Evolve point according to Hamiltonian method in
         https://arxiv.org/pdf/1005.0157.pdf
-        
+
         Parameters
         ----------
         p0 : :obj:`numpy.ndarray`
             momentum
         q0 : :obj:`cpnest.parameter.LivePoint`
             position
-        
+
         Returns
         ----------
         p: :obj:`numpy.ndarray` updated momentum vector
@@ -722,7 +806,7 @@ class ConstrainedLeapFrog(LeapFrog):
             p, q, reflected = self.evolve_trajectory_one_step_momentum(p, q, logLmin, half = False)
             trajectory.append((q.copy(),p.copy()))
             i += 1
-        
+
         # evolve backward in time
         i = 0
         p, q, reflected = self.evolve_trajectory_one_step_momentum(-p0.copy(), q0.copy(), logLmin, half = True)
@@ -741,13 +825,13 @@ class ConstrainedLeapFrog(LeapFrog):
 
     def sample_trajectory(self, trajectory):
         """
-        
+
         """
         logw = np.array([-self.hamiltonian(p,q) for q,p in trajectory[1:-1]])
         norm = logsumexp(logw)
         idx  = np.random.choice(range(1,len(trajectory)-1), p = np.exp(logw  - norm))
         return trajectory[idx]
-                    
+
     def save_trajectory(self, trajectory, logLmin, filename = None):
         """
         save trajectory for diagnostic purposes
