@@ -109,25 +109,33 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
     Make a set of contour plots
     """
     from matplotlib.lines import Line2D
+    import scipy.stats as stats
+
     print("Making scatter plot...")
     # scatter of error on logL
     if not isinstance(x, list):
         x = [x]
+        multiple_inputs = False
+    if len(x) > 1:
+        multiple_inputs = True
+
     N_params = np.shape(x[0])[-1]
+    # setup colours
     marker_colours = ['tab:red', 'tab:blue']
     cm = [plt.cm.Reds, plt.cm.Blues]
     contour_colours = [c(np.linspace(0.5, 1., 3)) for c in cm]
+    # setup labels
     if parameters is None:
         parameters = ["Parameter " + str(i) for i in range(N_params)]
     if labels is None:
         labels = ["Data " + str(i) for i in range(len(x))]
-    fig, axes = plt.subplots(N_params, N_params, figsize=(5*N_params, 5*N_params))
-    contour_plots = []
-    # limits
+    # crop plots
     crop_plot = False
     if np.min(x[0]) >= 0 and np.max(x[0]) <= 1.:
         crop_plot = True
     # main loop
+    contour_plots = []
+    fig, axes = plt.subplots(N_params, N_params, figsize=(5*N_params, 5*N_params))
     for i in range(N_params):
         for j in range(N_params):
             ax = axes[i, j]
@@ -162,10 +170,15 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
                         ax.set_ylim([ylim[0], 1])
 
             elif j == i:
+                h_vec = []
                 for n, a in enumerate(x):
                     h = a[:, j].T
+                    h_vec.append(h)
                     ax.hist(h, density=True, histtype='stepfilled',
                             color=marker_colours[n], alpha=0.5, bins=20)
+                if multiple_inputs:
+                    D, p_value = stats.ks_2samp(*h_vec)
+                    ax.set_title("D = {:.3}, p-value= {:.4}".format(D, p_value))
                 if crop_plot:
                     xlim = ax.get_xlim()
                     if xlim[0] < 0 and xlim[1] > 1:
@@ -205,6 +218,6 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
     fig.legend(legend_lines, labels)
     plt.tight_layout()
     if filename is not None:
-        plt.savefig(filename,bbox_inches='tight')
+        plt.savefig(filename, bbox_inches='tight')
     plt.close()
     return fig
