@@ -13,6 +13,21 @@ from .trainer import Trainer
 import torch
 import torch.nn as nn
 
+def ELU(x, alpha=0.01):
+    """Exponetial Linear Unit"""
+    y = x.copy()
+    neg_indices = np.where(x <= 0.)
+    y[neg_indices] = alpha * (np.exp(y[neg_indices]) - 1.)
+    return y
+
+def IELU(x, alpha=0.01):
+    """Inverse of the Exponential Linear Unit"""
+    y = x.copy()
+    neg_indices = np.where(x <= 0.)
+    y[neg_indices] = np.log(y[neg_indices] / alpha + 1.)
+    return y
+
+
 class SplitNetwork(nn.Module):
 
     def __init__(self, n_inputs, n_outputs=1, n_layers=4, n_neurons=128, activation='relu', batchnorm=False, dropout=None):
@@ -158,7 +173,8 @@ class FunctionApproximator(object):
         if trainer_dict is not None:
             self.setup_from_dict(trainer_dict)
             self.parameter_names = ["parameter_" + str(i) for i in range(self._n_parameters)]
-            self.save_input(trainer_dict)
+            if trainable:
+                self.save_input(trainer_dict)
         elif attr_dict is not None:
             self.n_inputs = False
             self.setup_from_attr_dict(attr_dict, verbose=verbose)
@@ -221,18 +237,30 @@ class FunctionApproximator(object):
     def _setup_model(self, trainer_dict):
         """Setup up the model"""
         self.model = SplitNetwork(**trainer_dict)
+        print("Function approximator: model:", self.model)
         self.model.to(self.device)
 
     def _setup_optimiser(self):
         """Setup the optimiser the model"""
-        loss_fns = {'MSE': nn.MSELoss(reduction='sum'),
-                    'MAE': nn.L1Loss(reduction='sum')}
+        loss_fns = {'MSE': nn.MSELoss(reduction='mean'),
+                    'MAE': nn.L1Loss(reduction='mean')}
         if self.weight_decay is None:
             self.weight_decay = 0.
         self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         if self.lr_patience is not None:
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimiser, patience=self.lr_patience, factor=0.5)
         self.loss_fn  = loss_fns[self.loss]
+
+    def _reset_model(self):
+        """Reset the weights and optimiser"""
+        self.model.apply(self.weight_reset)
+        self._setup_optimiser()
+
+    @staticmethod
+    def weight_reset(m):
+        """Reset parameters of a given model"""
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            m.reset_parameters()
 
     def reduce_lr(self):
         self.orgin_lr = self.lr
@@ -248,14 +276,14 @@ class FunctionApproximator(object):
         self._prior_min = np.min(self.priors, axis=0)
         self.normalise = True
 
-    def _setup_outpt_normalisation(self, f=None, inv_f=None, f_kwargs=None):
+    def _setup_output_normalisation(self, f=None, inv_f=None, f_kwargs=None):
         """
         Get range of priors for the parameters to be later used for normalisation
         NOTE: expect parameters to be ordered in same order as parameter sets
         """
         if f is None and inv_f is None:
-            self._output_norm_f = utils.ELU
-            self._output_norm_inv_f = utils.IELU
+            self._output_norm_f = ELU
+            self._output_norm_inv_f = IELU
             if not f_kwargs is None:
                 print("Setting up default output normalisation with custom values")
                 self._output_norm_kwargs = f_kwargs
@@ -356,6 +384,7 @@ class FunctionApproximator(object):
             x : list of array-like samples
             y : list of true values
         """
+        #self._reset_model()
         if self.optimiser is None:
             raise RuntimeError("Optimiser not defined")
         block_outdir = self.outdir + "block{}/".format(self._count)
@@ -367,9 +396,6 @@ class FunctionApproximator(object):
         if self.normalise_output:
             y = self._normalise_output_data(y)
 
-        # remove outliers
-        x = np.unique(x, axis=0)
-        y = np.unique(y)
         # shuffle
         x, y = self._shuffle_data(x, y)
         # split into train/val
@@ -378,26 +404,31 @@ class FunctionApproximator(object):
         y_split = np.array_split(y, [int(split * n)], axis=0)
         # accumlate data if flag true and not the first instance of training
         if accumulate and self._count:
+            print("Function approximator: using accumulated data")
             x_split = [np.concatenate([acc_x, x_tmp], axis=0) for acc_x, x_tmp in zip(self._accumulated_data[0], x_split)]
             y_split = [np.concatenate([acc_y, y_tmp], axis=0) for acc_y, y_tmp in zip(self._accumulated_data[1], y_split)]
-        # remove any duplicate points from training and validation sets
-        y_m = np.concatenate(y_split, axis=0).mean()
-        y_std = np.concatenate(y_split, axis=0).std()
-        for i, x_tmp in enumerate(x_split):
-            x_split[i], idx = np.unique(x_tmp, axis=0, return_index=True)
-            y_split[i] = y_split[i][idx]
+            # remove any duplicates
+            for i, x_tmp in enumerate(x_split):
+                _, idx = np.unique(x_tmp, axis=0, return_index=True)
+                idx = np.argsort(idx)
+                x_split[i] = x_split[i][idx]
+                y_split[i] = y_split[i][idx]
 
         if self.dev:
             self._plot_input_data(y_split, block_outdir)
 
-        for i, y_tmp in enumerate(y_split):
-            y_idx = np.where(np.abs(y_tmp - y_m) < 5. * y_std)
-            x_split[i] = x_split[i][y_idx]
-            y_split[i] = y_split[i][y_idx]
+        # remove outliers
+        if not self.normalise_output:
+            y_m = np.concatenate(y_split, axis=0).mean()
+            y_std = np.concatenate(y_split, axis=0).std()
+            for i, y_tmp in enumerate(y_split):
+                y_idx = np.where(np.abs(y_tmp - y_m) < 5. * y_std)
+                x_split[i] = x_split[i][y_idx]
+                y_split[i] = y_split[i][y_idx]
 
         # save processed data if accumulating
         if accumulate is not False:
-                self._accumulated_data = (x_split, y_split)
+            self._accumulated_data = (x_split, y_split)
 
         # get train/val and split if inputs are split
         x_train, x_val = x_split
@@ -423,7 +454,7 @@ class FunctionApproximator(object):
 
         val_tensor = [torch.from_numpy(x_val.astype(np.float32)), torch.from_numpy(y_val.astype(np.float32))]
         val_dataset = torch.utils.data.TensorDataset(*val_tensor)
-        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=x_val.shape[0], shuffle=False)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
 
         best_epoch = 0
         best_val_loss = np.inf
@@ -457,6 +488,7 @@ class FunctionApproximator(object):
                 print(f"Epoch {epoch}: Reached patience")
                 break
 
+        # load best model
         self.model.load_state_dict(best_model.state_dict())
         self.weights_file = block_outdir + "model.pt"
         torch.save(self.model.state_dict(), self.weights_file)
@@ -471,9 +503,10 @@ class FunctionApproximator(object):
         else:
             x_train_test = train_tensor[0].to(self.device)
             x_test = val_tensor[0].to(self.device)
+
         y_pred = self.model(x_test).detach().cpu().numpy().flatten()
         y_train_pred = self.model(x_train_test).detach().cpu().numpy()
-        # load weights from best epoch
+
         true_stats = [np.mean(y_val), np.std(y_val)]
         pred_stats = [np.mean(y_pred), np.std(y_pred)]
         # save the x arrays before they're split parameter sets
@@ -645,6 +678,7 @@ class FAPlots(object):
             axes = [axes]
         axes[0].plot(epochs, loss, label='loss')
         axes[0].plot(epochs, val_loss, label='val. loss')
+        axes[0].set_yscale("log")
         if not lr:
             axes[0].set_xlabel('Epochs')
         axes[0].set_ylabel('Loss')
@@ -683,7 +717,7 @@ class FATrainer(Trainer):
             logL.append(p.logL)
         x, y = np.array(points), np.array(logL)
         print("Function approximator: Training started at: {}".format(time.asctime()))
-        true_stats, pred_stats = self.fa.train(x, y, accumulate=True, plot=True)
+        true_stats, pred_stats = self.fa.train(x, y, accumulate=False, plot=True)
         print("Function approximator: Training ended at: {}".format(time.asctime()))
 
         mean_ratio = true_stats[0] / pred_stats[0]
