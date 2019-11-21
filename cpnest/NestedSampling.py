@@ -369,9 +369,10 @@ class NestedSampler(object):
                             self.manager.training.value = 0
                         else:
                             raise NotImplementedError("Trainer not implemented, choose from function approximator or flow")
-                    if (len(self.nested_samples) % self.n_training_samples == 0) or retrain:
+
+                    if (len(self.nested_samples) % self.n_training_samples <= nthreads) or (retrain and len(self.nested_samples) % (self.n_training_samples / 2) <= nthreads):
                         retrain = False
-                        if not len(self.nested_samples):
+                        if not len(self.nested_samples) > nthreads:
                             pass
                         elif not self.manager.training.value:
                             print("Trainer: training")
