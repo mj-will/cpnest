@@ -378,7 +378,7 @@ class FunctionApproximator(object):
         leg._legend_box.align = "left"
         fig.savefig(block_outdir + 'input_data.png', bbox_inches='tight')
 
-    def train(self, x, y, split=0.8, accumulate=False, plot=False, max_training_data=None, reset=False):
+    def train(self, x, y, split=0.8, accumulate=False, plot=False, max_training_data=None, truncate=True, reset=False):
         """
         Train on provided data
 
@@ -425,12 +425,13 @@ class FunctionApproximator(object):
 
         # remove outliers
         if not self.normalise_output:
-            y_m = np.concatenate(y_split, axis=0).mean()
-            y_std = np.concatenate(y_split, axis=0).std()
-            for i, y_tmp in enumerate(y_split):
-                y_idx = np.where(np.abs(y_tmp - y_m) < 5. * y_std)
-                x_split[i] = x_split[i][y_idx]
-                y_split[i] = y_split[i][y_idx]
+            if truncate:
+                y_m = np.concatenate(y_split, axis=0).mean()
+                y_std = np.concatenate(y_split, axis=0).std()
+                for i, y_tmp in enumerate(y_split):
+                    y_idx = np.where(np.abs(y_tmp - y_m) < 5. * y_std)
+                    x_split[i] = x_split[i][y_idx]
+                    y_split[i] = y_split[i][y_idx]
 
         # save processed data if accumulating
         if accumulate is not False:
