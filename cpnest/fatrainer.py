@@ -27,6 +27,11 @@ def IELU(x, alpha=0.01):
     y[neg_indices] = np.log(y[neg_indices] / alpha + 1.)
     return y
 
+def weight_reset(m):
+    """Reset parameters of a given model"""
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear) or isinstance(m, nn.BatchNorm1d):
+        m.reset_parameters()
+
 
 class SplitNetwork(nn.Module):
 
@@ -149,22 +154,27 @@ class FunctionApproximator(object):
         self.verbose = verbose
         # input independent inits
         self.model = None
-        self.optimiser = None
-        self.trainable = trainable
-        self._count = 0
         self.priors = None
         self.normalise = False
         self.normalise_output = False
         self.split = False
         self.max_epochs = 100
         self.bacth_size = 100
-        self.weight_decay = None
+        # optimiser
+        self.optimiser = None
+        self.loss = 'MSE'            # loss function
+        self.weight_decay = None     # weight decay for optimiser
+        # learning rate parameters
         self.lr = 0.001
-        self.lr_patience = None
-        self.scheduler = None
-        self.loss = 'MSE'
+        self.lr_patience = None      # patience for decreasing learning rate
+        self.factor = 0.5            # factor by whic to reduce lr
+        self.cooldown = 0            # minimum period between reductions in lr
 
+        self.trainable = trainable
         self.dev = dev
+
+        self.scheduler = None
+        self._count = 0
 
 
         if trainer_dict is not None and attr_dict is not None:
@@ -248,22 +258,14 @@ class FunctionApproximator(object):
             self.weight_decay = 0.
         self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         if self.lr_patience is not None:
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimiser, patience=self.lr_patience, factor=0.5)
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    self.optimiser, patience=self.lr_patience, factor=self.factor, cooldown=self.cooldown, verbose=True)
         self.loss_fn  = loss_fns[self.loss]
 
     def _reset_model(self):
         """Reset the weights and optimiser"""
-        self.model.apply(self.weight_reset)
+        self.model.apply(weight_reset)
         self._setup_optimiser()
-
-    @staticmethod
-    def weight_reset(m):
-        """Reset parameters of a given model"""
-        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-            m.reset_parameters()
-
-    def reduce_lr(self):
-        self.orgin_lr = self.lr
 
     def _shuffle_data(self, x, y):
         """Shuffle data"""
@@ -376,7 +378,7 @@ class FunctionApproximator(object):
         leg._legend_box.align = "left"
         fig.savefig(block_outdir + 'input_data.png', bbox_inches='tight')
 
-    def train(self, x, y, split=0.8, accumulate=False, plot=False, max_training_data=None):
+    def train(self, x, y, split=0.8, accumulate=False, plot=False, max_training_data=None, reset=False):
         """
         Train on provided data
 
@@ -384,12 +386,16 @@ class FunctionApproximator(object):
             x : list of array-like samples
             y : list of true values
         """
-        #self._reset_model()
+        if reset:
+            self._reset_model()
+
         if self.optimiser is None:
             raise RuntimeError("Optimiser not defined")
+
         block_outdir = self.outdir + "block{}/".format(self._count)
         if not os.path.isdir(block_outdir):
             os.mkdir(block_outdir)
+
         if self.normalise:
             x = self._normalise_input_data(x)
         # if normalising output all ouput data will be saved normalised
@@ -631,7 +637,8 @@ class FunctionApproximator(object):
 
 class FAPlots(object):
 
-    def __init__(self, outdir='./', x_train=None, y_train=None, x_val=None, y_val=None, y_train_pred=None, y_pred=None, history=None, parameters=None):
+    def __init__(self, outdir='./', x_train=None, y_train=None, x_val=None, y_val=None,
+                 y_train_pred=None, y_pred=None, history=None, parameters=None):
 
         self.outdir = outdir
         self.x_train = x_train
