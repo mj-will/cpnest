@@ -25,7 +25,16 @@ class FlowModel(nn.Module):
     def __init__(self, n_inputs=None, n_neurons=128, n_layers=2, n_blocks=4, device=None):
         super(FlowModel, self).__init__()
 
-        mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
+        if device is None:
+            raise ValueError("Must provided a device or a string for a device")
+
+        if type(device) == str:
+            self.device = torch.device(device)
+        else:
+            self.device = device
+
+        self.n_inputs = n_inputs
+        mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=self.device), 2)
 
         layers = []
         for _ in range(n_blocks):
@@ -33,8 +42,7 @@ class FlowModel(nn.Module):
             mask = 1 - mask
 
         self.net = FlowSequential(*layers)
-        if device is not None:
-            self.net.to(device)
+        self.net.to(self.device)
 
     def forward(self, inputs, cond_inputs=None, mode='direct', logdets=None):
         return self.net(inputs, cond_inputs=cond_inputs, mode=mode, logdets=logdets)
