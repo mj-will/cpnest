@@ -206,11 +206,13 @@ class FunctionApproximator(object):
         return np.sum(self.input_shape)
 
     def set_device(self, device_tag):
+        """Set device from a string"""
         if device_tag is None:
+            device_tag = 'cpu'
             self.device = torch.device('cpu')
         else:
             self.device = torch.device(device_tag)
-
+        print("Function approximator: Running on " + device_tag)
 
     def setup_from_dict(self, trainer_dict):
         """Set up the class before training from a dict"""
