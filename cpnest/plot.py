@@ -219,5 +219,4 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
     plt.tight_layout()
     if filename is not None:
         plt.savefig(filename, bbox_inches='tight')
-    plt.close()
-    return fig
+    plt.close(fig)
