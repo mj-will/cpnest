@@ -12,7 +12,6 @@ from scipy.special import logsumexp
 
 from cpnest.parameter import LivePoint
 
-import torch
 
 class Proposal(object):
     """
@@ -252,10 +251,12 @@ class EnsembleEigenVector(EnsembleProposal):
 
 class FlowProposal(Proposal):
 
+    torch = __import__('torch')
 
-    def __init__(self, ndims=None, model=None, names=None):
-        self.model = model                     # Flow model
-        self.ndims = ndims
+    def __init__(self, model_dict=None, names=None, device='cpu'):
+        from .flowtrainer import FlowModel
+        self.model = FlowModel(**model_dict, device=device)                     # Flow model
+        self.ndims = model_dict["n_inputs"]
         self.mu = np.zeros(self.ndims)
         self.sigma = np.identity(self.ndims)
         self.worst_r2 = np.inf
@@ -288,21 +289,21 @@ class FlowProposal(Proposal):
 
     def forward_pass(self, point):
         """Pass a vector of points through the model"""
-        input_tensor = torch.Tensor(point.astype(np.float32))
+        input_tensor = self.torch.Tensor(point.astype(np.float32)).to(self.model.device)
         latent_point, _ = self.model(input_tensor)
         latent_point = latent_point.detach().cpu().numpy()
         return np.array(latent_point)
 
     def backward_pass(self, latent_samples):
         """A backwards pass from the model (latent -> real)"""
-        input_tensor = torch.Tensor(latent_samples.astype(np.float32))
+        input_tensor = self.torch.Tensor(latent_samples.astype(np.float32)).to(self.model.device)
         points, _ = self.model(input_tensor, mode='inverse')
         points = points.detach().cpu().numpy()
         return points
 
-    def update_model(self, weights_file):
+    def load_weights(self, weights_file):
         """Update the model from a weights file"""
-        self.model.load_state_dict(torch.load(weights_file))
+        self.model.load_state_dict(self.torch.load(weights_file))
 
     def _radius2(self, latent_point):
         """Calculate the radius of a latent_point"""

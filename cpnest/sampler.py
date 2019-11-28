@@ -104,6 +104,8 @@ class Sampler(CPThread):
 
         self.trainer_type = trainer_type
         if trainer_type is not None:
+            print('Sampler: trainer enabled')
+            print(f'       : type: {trainer_type}')
             self.trainer_dict = trainer_dict
         # set the logL function so it can be swapped
         self._set_log_likelihood()
@@ -113,6 +115,8 @@ class Sampler(CPThread):
         """
         Receive commands from the main thread and pass to the handler
         """
+        sys.stdout = open("./logs/sampler" + str(os.getpid()) + ".out", "a", buffering=1)
+        sys.stderr = open("./logs/sampler" + str(os.getpid()) + "_error.out", "a", buffering=1)
         while True:
             cmd = self.producer_pipe.recv()
             end = self.handle_cmd(cmd)
@@ -128,11 +132,13 @@ class Sampler(CPThread):
                 self.produce_sample(cmd.payload)
                 return 0
             elif cmd.ctype == 'set_weights':
-                self.fa.load_weights(cmd.payload)
+                self.trainer_model.load_weights(cmd.payload)
                 return 0
-            elif cmd.ctype == 'switch':
+            elif cmd.ctype == 'switch_logL':
                 self.set_proposal_log_likelihood(cmd.payload)
                 return 0
+            elif cmd.ctype == 'switch_proposal':
+                self.set_proposal(cmd.payload)
             elif cmd.ctype == 'exit':
                 self.end_sampling()
                 return 1
@@ -147,10 +153,7 @@ class Sampler(CPThread):
         and distributing them according to :obj:`cpnest.model.Model.log_prior`
         """
         if self.trainer_type is not None:
-            if self.trainer_type == 'function_approximator':
-                self.initialise_function_approximator()
-            else:
-                print("Trainer: trainer is not a function approximator")
+            self.initialise_trainer()
 
         np.random.seed(seed=self.seed)
         for n in tqdm(range(self.poolsize), desc='SMPLR {} init draw'.format(self.thread_id),
@@ -183,13 +186,22 @@ class Sampler(CPThread):
     def set_proposal_log_likelihood(self, logL_type='model'):
         """Switch the likelihood being used"""
         if logL_type == 'fa':
-            self.proposal_logL = self.fa.predict
-            self.logL_type = 'fa'
+            self.proposal_logL = self.trainer_model.predict
+            #self.logL_type = 'fa'
         elif logL_type == 'model':
             self.proposal_logL = self.model.log_likelihood
-            self.logL_type = 'model'
+            #self.logL_type = 'model'
         else:
             raise ValueError("Unknown logL type")
+
+    def set_proposal(self, proposal_type='default'):
+        """Switch the proposals being used"""
+        if proosal_type == 'flow':
+            self.proposal = self.flow_proposal
+        elif proposel_type == 'default':
+            self.proposal = self.default_proposal
+        else:
+            raise ValueError("Unknown proposal type")
 
     def estimate_nmcmc(self, safety=5, tau=None):
         """
@@ -279,12 +291,25 @@ class Sampler(CPThread):
         with open(self.resume_file, "wb") as f:
             pickle.dump(self, f)
 
-    def initialise_function_approximator(self):
+    def initialise_trainer(self):
         """
-        Import functions that use tensorflow and initialise the function approximator
+        Import flow proposal and initialise it
         """
-        from .fatrainer import FunctionApproximator
-        self.fa = FunctionApproximator(trainer_dict=self.trainer_dict, verbose=1, trainable=False)
+        if self.trainer_type == 'function_approximator':
+            from .fatrainer import FunctionApproximator
+            self.trainer_model = FunctionApproximator(
+                    trainer_dict=self.trainer_dict, verbose=1, trainable=False)
+        elif self.trainer_type == 'flow':
+            from .proposal import FlowProposal
+            self.flow_proposal = FlowProposal(
+                    model_dict=self.trainer_dict["model_dict"],
+                    names=self.model.names,
+                    device=self.trainer_dict["device_tag"])
+            self.trainer_model = self.flow_proposal
+            self.default_proposal = self.proposal
+        else:
+            self.flow_proposal = None
+            self.default_proposal = None
 
     @classmethod
     def resume(cls, resume_file, manager, model):
