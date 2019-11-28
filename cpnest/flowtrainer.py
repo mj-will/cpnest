@@ -76,7 +76,6 @@ class FlowTrainer(Trainer):
     def _setup_from_input_dict(self, attr_dict):
         for key, value in six.iteritems(attr_dict):
             setattr(self, key, value)
-        self.device = torch.device(self.device_tag)
         self.n_inputs = self.model_dict["n_inputs"]
         if not os.path.isdir(self.outdir):
             os.mkdir(self.outdir)
@@ -86,6 +85,7 @@ class FlowTrainer(Trainer):
         """
         Intialise the model and optimiser
         """
+        self.device = torch.device(self.device_tag)
         self.model = FlowModel(device=self.device, **self.model_dict)
         self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-6)
         if self.priors is not None:
@@ -118,10 +118,14 @@ class FlowTrainer(Trainer):
         for p in payload:
             samples.append(p.values)
         samples = np.array(samples)
-
+        print("Flow trainer: starting training")
         self._train_on_data(samples)
 
-    def _train_on_data(self, samples):
+        if self.manager is not None:
+            self.manager.trained.value = 1
+            self.producer_pipe.send(self.weights_file)
+
+    def _train_on_data(self, samples, plot=True):
         """
         Train the flow on samples
         """
@@ -136,6 +140,7 @@ class FlowTrainer(Trainer):
 
         if not os.path.isdir(block_outdir):
             os.mkdir(block_outdir)
+        print("Flow trainer: plotting input")
         plot_corner_contour(samples, filename=block_outdir + "input_samples.png")
         # setup data loading
         x_train, x_val = train_test_split(samples, test_size=self.val_size)
@@ -151,7 +156,7 @@ class FlowTrainer(Trainer):
         best_epoch = 0
         best_val_loss = np.inf
         best_model = copy.deepcopy(self.model)
-
+        print("Flow trainer: starting training loop")
         for epoch in range(1, self.max_epochs + 1):
 
             loss = self._train(train_loader)
@@ -168,16 +173,15 @@ class FlowTrainer(Trainer):
             if epoch - best_epoch > self.patience:
                 print(f"Epoch {epoch}: Reached patience")
                 break
+
         self.training_count += 1
         self.model.load_state_dict(best_model.state_dict())
         self.weights_file = block_outdir + 'model.pt'
         torch.save(self.model.state_dict(), self.weights_file)
         # sample for plots
         output = self.sample(N=5000)
-        if self.manager is not None:
-            self.manager.trained.value = 1
-
-        plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
+        if plot:
+            plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
 
     def _train(self, loader, noise_scale=0.):
         """Loop over the data and update the weights"""
@@ -199,7 +203,6 @@ class FlowTrainer(Trainer):
             train_loss += loss.item()
             loss.backward()
             self.optimiser.step()
-
 
             for module in model.modules():
                 if isinstance(module, BatchNormFlow):
