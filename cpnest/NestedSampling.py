@@ -340,7 +340,9 @@ class NestedSampler(object):
             training_data = list()  # Data that has yet to be trained on
             retrain = False         # Retrain flag
             using_fa = False        # using fa instead of analytic likelihood
+            using_flow = False
             fa_count = 0            # count of points computed with approximator likelihood
+            flow_count = 0
             nthreads = self.manager.nthreads
             while self.condition > self.tolerance:
                 if self.trainer:
@@ -353,10 +355,10 @@ class NestedSampler(object):
                                 c.send(CPCommand('set_weights', payload=weights_file))
                             self.manager.trained.value = 0
                             self.manager.training.value = 0
-                            if self.manager.use_fa.value:
+                            if self.manager.use_fa.value and not using_fa:
                                 print("Function approximator: switching to approximate likelihood")
                                 for c in self.manager.consumer_pipes:
-                                    c.send(CPCommand('switch', payload='fa'))
+                                    c.send(CPCommand('switch_logL', payload='fa'))
                                 print("Function approxiamtor: using approximate likelihood for {0} iterations".format(self.n_likelihood_evaluations))
                                 using_fa = True
                                 self.manager.use_fa.value = 0
@@ -364,9 +366,19 @@ class NestedSampler(object):
                                 print("Function approximator: peformance not high enough, retraining")
                                 retrain = True
                         elif self.trainer_type == 'flow':
-                            print("Trainer: flows does not affect sampler")
+                            weights_file = self.manager.trainer_consumer_pipe.recv()
+                            print("Trainer: enabling flow")
+                            for c in self.manager.consumer_pipes:
+                                c.send(CPCommand('set_weights', payload=weights_file))
                             self.manager.trained.value = 0
                             self.manager.training.value = 0
+                            if self.manager.use_flow.value and not using_flow:
+                                print("Flows: switiching to flow proposal")
+                                for c in self.manager.consumer_pipes:
+                                    c.send(CPCommand('switch_proposal', payload='flow'))
+                                using_flow = True
+                            self.manager.use_flow.value = 0
+
                         else:
                             raise NotImplementedError("Trainer not implemented, choose from function approximator or flow")
 
@@ -397,9 +409,17 @@ class NestedSampler(object):
                     if fa_count >= self.n_likelihood_evaluations:
                         print("Function approximator: switching to analytic likelihood")
                         for c in self.manager.consumer_pipes:
-                            c.send(CPCommand('switch', payload='model'))
+                            c.send(CPCommand('switch_logL', payload='model'))
                         using_fa = False
                         fa_count = 0
+                if using_flow:
+                    flow_count += nthreads
+                    if flow_count >= self.n_likelihood_evaluations:
+                        print("Flow proposal: switching to default cycle")
+                        for c in self.manager.consumer_pipes:
+                            c.send(CPCommand('switch_proposal', payload='default'))
+                        using_flow = False
+                        flow_count = 0
 
                 if self.n_periodic_checkpoint is not None and i % self.n_periodic_checkpoint == 1:
                     self.checkpoint()

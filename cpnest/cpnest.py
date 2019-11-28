@@ -8,9 +8,12 @@ import os
 import sys
 import signal
 
-from multiprocessing.sharedctypes import Value, Array
 from multiprocessing import Lock
+from multiprocessing.sharedctypes import Value, Array
 from multiprocessing.managers import SyncManager
+
+
+#mp.set_start_method('spawn')
 
 import cProfile
 
@@ -334,6 +337,7 @@ class RunManager(SyncManager):
             self.trained = mp.Value(c_int,0)
             self.training = mp.Value(c_int,0)
             self.use_fa = mp.Value(c_int,0)
+            self.use_flow = mp.Value(c_int, 0)
 
     def connect_producer(self, trainer=False):
         """
