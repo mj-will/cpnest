@@ -103,6 +103,7 @@ class Sampler(CPThread):
         self.producer_pipe, self.thread_id = self.manager.connect_producer()
 
         self.trainer_type = trainer_type
+        self.trainer_initialised = False
         if trainer_type is not None:
             print('Sampler: trainer enabled')
             print(f'       : type: {trainer_type}')
@@ -115,8 +116,6 @@ class Sampler(CPThread):
         """
         Receive commands from the main thread and pass to the handler
         """
-        sys.stdout = open("./logs/sampler" + str(os.getpid()) + ".out", "a", buffering=1)
-        sys.stderr = open("./logs/sampler" + str(os.getpid()) + "_error.out", "a", buffering=1)
         while True:
             cmd = self.producer_pipe.recv()
             end = self.handle_cmd(cmd)
@@ -139,6 +138,10 @@ class Sampler(CPThread):
                 return 0
             elif cmd.ctype == 'switch_proposal':
                 self.set_proposal(cmd.payload)
+                return 0
+            elif cmd.ctype == 'init':
+                self.initialise_trainer()
+                return 0
             elif cmd.ctype == 'exit':
                 self.end_sampling()
                 return 1
@@ -196,9 +199,9 @@ class Sampler(CPThread):
 
     def set_proposal(self, proposal_type='default'):
         """Switch the proposals being used"""
-        if proosal_type == 'flow':
+        if proposal_type == 'flow':
             self.proposal = self.flow_proposal
-        elif proposel_type == 'default':
+        elif proposal_type == 'default':
             self.proposal = self.default_proposal
         else:
             raise ValueError("Unknown proposal type")
@@ -295,21 +298,32 @@ class Sampler(CPThread):
         """
         Import flow proposal and initialise it
         """
-        if self.trainer_type == 'function_approximator':
-            from .fatrainer import FunctionApproximator
-            self.trainer_model = FunctionApproximator(
-                    trainer_dict=self.trainer_dict, verbose=1, trainable=False)
-        elif self.trainer_type == 'flow':
-            from .proposal import FlowProposal
-            self.flow_proposal = FlowProposal(
-                    model_dict=self.trainer_dict["model_dict"],
-                    names=self.model.names,
-                    device=self.trainer_dict["device_tag"])
-            self.trainer_model = self.flow_proposal
-            self.default_proposal = self.proposal
-        else:
-            self.flow_proposal = None
-            self.default_proposal = None
+        if not self.trainer_initialised:
+            if self.trainer_type == 'function_approximator':
+                from .fatrainer import FunctionApproximator
+                self.trainer_model = FunctionApproximator(
+                        trainer_dict=self.trainer_dict, verbose=1,
+                        trainable=False, device=self.trainer_dict["sampler_device"])
+            elif self.trainer_type == 'flow':
+                from .proposal import FlowProposal, RandomFlowProposal
+                try:
+                    device = self.trainer_dict["proposal_device"]
+                except:
+                    device='cpu'
+
+                self.flow_proposal = RandomFlowProposal(
+                        model_dict=self.trainer_dict["model_dict"],
+                        names=self.model.names,
+                        priors=self.trainer_dict["priors"],
+                        device=device)
+                self.trainer_model = self.flow_proposal
+                self.default_proposal = self.proposal
+            else:
+                self.flow_proposal = None
+                self.default_proposal = None
+            self.trainer_initialised = True
+            print("Sending init confirmation")
+            self.producer_pipe.send(1)
 
     @classmethod
     def resume(cls, resume_file, manager, model):
