@@ -12,9 +12,6 @@ from multiprocessing import Lock
 from multiprocessing.sharedctypes import Value, Array
 from multiprocessing.managers import SyncManager
 
-
-#mp.set_start_method('spawn')
-
 import cProfile
 
 
