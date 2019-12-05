@@ -4,15 +4,26 @@ import six
 import os
 import time
 import copy
+import logging
+import json
 import numpy as np
 import corner
 import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
+from scipy import stats as stats
+
+import matplotlib.pyplot as plt
 
 from .trainer import Trainer
 from .flows import CouplingLayer, BatchNormFlow, FlowSequential
 from .plot import plot_corner_contour
+
+
+def weight_reset(m):
+    """Reset parameters of a given model"""
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear) or isinstance(m, nn.BatchNorm1d):
+        m.reset_parameters()
 
 
 class FlowModel(nn.Module):
@@ -60,12 +71,11 @@ class FlowTrainer(Trainer):
         self.manager=None
         super(FlowTrainer, self).__init__(manager=manager, output=output)
         self.outdir = output
+        self.create_logger(output)
         self.priors = None
         self.intialised = False
         self.normalise = False
         self.device_tag = 'cpu'
-        self._setup_from_input_dict(trainer_dict)
-
         # default training params
         self.lr = 0.0001
         self.val_size = 0.1
@@ -73,13 +83,40 @@ class FlowTrainer(Trainer):
         self.max_epochs = 1000
         self.patience = 100
 
+        self._setup_from_input_dict(trainer_dict)
+
+    def create_logger(self, path="./"):
+        """Create logger"""
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+        fh = logging.FileHandler(path + "flow.log")
+        fh.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s'))
+        self.logger.addHandler(fh)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s')
+        ch.setFormatter(formatter)
+        self.logger.addHandler(ch)
+
+    def save_input(self, attr_dict):
+        """Save the dictionary used as an inputs as a JSON file"""
+        d = attr_dict.copy()
+        output_file = self.outdir + "trainer_dict.json"
+        for k, v in list(d.items()):
+            if type(v) == np.ndarray:
+                d[k] = np.array_str(d[k])
+        with open(output_file, "w") as f:
+            json.dump(d, f, indent=4)
+
     def _setup_from_input_dict(self, attr_dict):
         for key, value in six.iteritems(attr_dict):
             setattr(self, key, value)
         self.n_inputs = self.model_dict["n_inputs"]
         if not os.path.isdir(self.outdir):
             os.mkdir(self.outdir)
-        # setup device
+        self.save_input(attr_dict)
 
     def initialise(self):
         """
@@ -89,10 +126,18 @@ class FlowTrainer(Trainer):
         self.model = FlowModel(device=self.device, **self.model_dict)
         self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-6)
         if self.priors is not None:
-            print("Flow trainer: setting up normalisation")
+            self.logger.info("Setting up normalisation")
             self.setup_normalisation()
         self.intialised = True
         self.training_count = 0
+        if self.manager is not None:
+            self.logger.info("Sending init confirmation")
+            self.producer_pipe.send(1)
+
+    def _reset_model(self):
+        """Reset the weights and optimiser"""
+        self.model.apply(weight_reset)
+        self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-6)
 
     def setup_normalisation(self):
         """
@@ -102,46 +147,61 @@ class FlowTrainer(Trainer):
         self._prior_min = np.min(self.priors, axis=0)
         self.normalise = True
 
-
     def normalise_samples(self, x):
         """
         Normalise a set of samples
         """
-        return (x - self._prior_min) / (self._prior_max - self._prior_min)
+        return 2. * ((x - self._prior_min) / (self._prior_max - self._prior_min)) - 1
+
+    def rescale_sample(self, x):
+        """
+        Apply the inverse of the normalisation
+        """
+        return (self._prior_max - self._prior_min) * ((x + 1) / 2.) + self._prior_min
 
 
     def train(self, payload):
         """
         Training the flow given a payload of CPnest LivePoints
         """
-        samples = []
-        for p in payload:
-            samples.append(p.values)
-        samples = np.array(samples)
-        print("Flow trainer: starting training")
-        self._train_on_data(samples)
+        samples = np.array([p.values for p in payload])
+        self.logger.info("Starting training setup")
 
+        D, p_value = self._train_on_data(samples)
+
+        self.logger.info("Training complete")
+
+        # send weights and check whether to enable the flow
         if self.manager is not None:
+            if D >= 0.01:
+                self.manager.use_flow.value = 1
             self.manager.trained.value = 1
             self.producer_pipe.send(self.weights_file)
+            self.logger.info("Weights sent")
+
 
     def _train_on_data(self, samples, plot=True):
         """
         Train the flow on samples
         """
         if not self.intialised:
+            self.logger.info("Initialising")
             self.initialise()
-
+        else:
+            self._reset_model()
         if self.normalise:
-            print("Using normalisation")
+            self.logger.info("Using normalisation")
             samples = self.normalise_samples(samples)
 
         block_outdir = "{}block{}/".format(self.outdir, self.training_count)
 
         if not os.path.isdir(block_outdir):
             os.mkdir(block_outdir)
-        print("Flow trainer: plotting input")
-        plot_corner_contour(samples, filename=block_outdir + "input_samples.png")
+        if plot:
+            #print("Flow trainer: plotting input")
+            #plot_corner_contour(samples, filename=block_outdir + "input_samples.png")
+            pass
+
         # setup data loading
         x_train, x_val = train_test_split(samples, test_size=self.val_size)
         train_tensor = torch.from_numpy(x_train.astype(np.float32))
@@ -156,11 +216,17 @@ class FlowTrainer(Trainer):
         best_epoch = 0
         best_val_loss = np.inf
         best_model = copy.deepcopy(self.model)
-        print("Flow trainer: starting training loop")
+        self.logger.info("Starting training")
+        self.logger.info("Training parameters:")
+        self.logger.info(f"Max. epochs: {self.max_epochs}")
+        self.logger.info(f"Patience: {self.patience}")
+        history = dict(loss=[], val_loss=[])
         for epoch in range(1, self.max_epochs + 1):
 
             loss = self._train(train_loader)
             val_loss = self._validate(val_loader)
+            history['loss'].append(loss)
+            history['val_loss'].append(val_loss)
 
             if val_loss < best_val_loss:
                 best_epoch = epoch
@@ -168,10 +234,10 @@ class FlowTrainer(Trainer):
                 best_model = copy.deepcopy(self.model)
 
             if not epoch % 50:
-                print(f"Epoch {epoch}: loss: {loss:.3}, val loss: {val_loss:.3}")
+                self.logger.info(f"Epoch {epoch}: loss: {loss:.3}, val loss: {val_loss:.3}")
 
             if epoch - best_epoch > self.patience:
-                print(f"Epoch {epoch}: Reached patience")
+                self.logger.info(f"Epoch {epoch}: Reached patience")
                 break
 
         self.training_count += 1
@@ -179,9 +245,24 @@ class FlowTrainer(Trainer):
         self.weights_file = block_outdir + 'model.pt'
         torch.save(self.model.state_dict(), self.weights_file)
         # sample for plots
-        output = self.sample(N=5000)
+        output = self.sample(N=len(samples))
         if plot:
+            self.logger.info("Plotting output")
+            fig = plt.figure()
+            epochs = np.arange(1, epoch + 1, 1)
+            plt.plot(epochs, history['loss'], label='Loss')
+            plt.plot(epochs, history['val_loss'], label='Val. loss')
+            plt.xlabel('Epochs')
+            plt.ylabel('Loss')
+            plt.legend()
+            fig.savefig(block_outdir + 'loss.png')
             plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
+
+        # compute mean KS
+        D, p_value = self.compute_mean_ks(samples, output)
+        self.logger.info(f"Computed KS - D: {D}, p: {p_value}")
+        return D, p_value
+
 
     def _train(self, loader, noise_scale=0.):
         """Loop over the data and update the weights"""
@@ -252,3 +333,14 @@ class FlowTrainer(Trainer):
             self.initialise()
         self.model.load_state_dict(torch.load(weights_file))
         self.model.eval()
+
+    def compute_mean_ks(self, samples, output):
+        """Compute the KS over each dimension and take the mean"""
+        samples = np.array(samples)
+        output = np.array(output)
+        n_dims = samples.shape[-1]
+        D_values = np.empty(n_dims,)
+        p_values = np.empty(n_dims,)
+        for i, t, p in zip(range(n_dims), samples.T, output.T):
+            D_values[i], p_values[i] = stats.ks_2samp(*[t, p])
+        return D_values.mean(), p_values.mean()
