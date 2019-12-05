@@ -111,7 +111,6 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
     from matplotlib.lines import Line2D
     import scipy.stats as stats
 
-    print("Making scatter plot...")
     # scatter of error on logL
     if not isinstance(x, list):
         x = [x]
@@ -131,7 +130,7 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
         labels = ["Data " + str(i) for i in range(len(x))]
     # crop plots
     crop_plot = False
-    if np.min(x[0]) >= 0 and np.max(x[0]) <= 1.:
+    if np.min(x[0]) >= -1. and np.max(x[0]) <= 1.:
         crop_plot = True
     # main loop
     contour_plots = []
@@ -154,17 +153,20 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
                     cp = ax.contour(X2, Y2, H2.T, V, colors=contour_colours[n], linewidths=2.0)
                     contour_plots.append(cp)
                 if crop_plot:
+                    ax.set_xlim([-1, 1])
+                    ax.set_ylim([-1, 1])
+                    pass
                     xlim = ax.get_xlim()
                     ylim = ax.get_ylim()
-                    if xlim[0] < 0 and xlim[1] > 1:
+                    if xlim[0] < -1 and xlim[1] > 1:
                         ax.set_xlim([0,1])
-                    elif xlim[0] < 0:
+                    elif xlim[0] < -1:
                         ax.set_xlim([0, xlim[1]])
                     elif xlim[1] > 1:
                         ax.set_ylim([xlim[0], 1])
                     if ylim[0] < 0 and ylim[1] > 1:
                         ax.set_ylim([0,1])
-                    elif ylim[0] < 0:
+                    elif ylim[0] < -1:
                         ax.set_ylim([0, ylim[1]])
                     elif ylim[1] > 1:
                         ax.set_ylim([ylim[0], 1])
@@ -180,13 +182,15 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
                     D, p_value = stats.ks_2samp(*h_vec)
                     ax.set_title("D = {:.3}, p-value= {:.4}".format(D, p_value))
                 if crop_plot:
+                    ax.set_xlim([-1, 1])
+                    pass
                     xlim = ax.get_xlim()
-                    if xlim[0] < 0 and xlim[1] > 1:
+                    if xlim[0] < -1 and xlim[1] > 1:
                         ax.set_xlim([0,1])
-                    elif xlim[0] < 0:
+                    elif xlim[0] < -1:
                         ax.set_xlim([0, xlim[1]])
                     elif xlim[1] > 1:
-                        ax.set_ylim([xlim[0], 1])
+                        ax.set_xlim([xlim[0], 1])
                 ax.set_yticklabels([])
             else:
                 ax.set_axis_off()
