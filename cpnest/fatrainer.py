@@ -5,6 +5,7 @@ import six
 import os
 import json
 import copy
+import logging
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -149,7 +150,9 @@ class SplitNetwork(nn.Module):
 
 class FunctionApproximator(object):
 
-    def __init__(self, trainer_dict=None, attr_dict=None, trainable=True, verbose=1, dev=False):
+    def __init__(self, trainer_dict=None, attr_dict=None, trainable=True, verbose=1, dev=False, device=None):
+
+        self.logger = logging.getLogger(__name__ + ".FunctionApproximator")
 
         self.verbose = verbose
         # input independent inits
@@ -176,6 +179,10 @@ class FunctionApproximator(object):
         self.scheduler = None
         self._count = 0
 
+        # device will override dictionary
+        if device is not None:
+            trainer_dict["device_tag"] = device
+
 
         if trainer_dict is not None and attr_dict is not None:
             raise ValueError("Provided both json file and attribute dict, use one or other")
@@ -195,7 +202,6 @@ class FunctionApproximator(object):
         if not trainable:
             self.model.eval()
 
-
     def __str__(self):
         args = "".join("{}: {}\n".format(key, value) for key, value in six.iteritems(self.parameters))
         return "FunctionApproximator instance\n" + "".join("    {}: {}\n".format(key, value) for key, value in six.iteritems(self.parameters))
@@ -212,12 +218,12 @@ class FunctionApproximator(object):
             self.device = torch.device('cpu')
         else:
             self.device = torch.device(device_tag)
-        print("Function approximator: Running on " + device_tag)
+        self.logger.info("Running on " + device_tag)
 
     def setup_from_dict(self, trainer_dict):
         """Set up the class before training from a dict"""
         if self.model is None:
-            print("Setting up function approximator")
+            self.logger.info("Setting up function approximator")
             for key, value in six.iteritems(trainer_dict):
                 setattr(self, key, value)
             if self.trainable:
@@ -249,7 +255,7 @@ class FunctionApproximator(object):
     def _setup_model(self, trainer_dict):
         """Setup up the model"""
         self.model = SplitNetwork(**trainer_dict)
-        print("Function approximator: model:", self.model)
+        self.logger.info("Model:", self.model)
         self.model.to(self.device)
 
     def _setup_optimiser(self):
@@ -289,15 +295,15 @@ class FunctionApproximator(object):
             self._output_norm_f = ELU
             self._output_norm_inv_f = IELU
             if not f_kwargs is None:
-                print("Setting up default output normalisation with custom values")
+                self.logger.info("Setting up default output normalisation with custom values")
                 self._output_norm_kwargs = f_kwargs
             else:
-                print("Setting up defautl output normalisation with default values")
+                self.logger.info("Setting up defautl output normalisation with default values")
                 self._output_norm_kwargs = dict(alpha=0.01)
         elif f is None or inv_f is None:
             raise RuntimeError("Must provide both normalisation function and its inverse.")
         else:
-            print("Setting up output normalisation with custom function")
+            self.logger.info("Setting up output normalisation with custom function")
             self._output_norm_f = f
             self._output_norm_inv_f = inv_f
             if not f_kwargs is None:
@@ -412,7 +418,7 @@ class FunctionApproximator(object):
         y_split = np.array_split(y, [int(split * n)], axis=0)
         # accumlate data if flag true and not the first instance of training
         if accumulate and self._count:
-            print("Function approximator: using accumulated data")
+            self.logger.info("Using accumulated data")
             x_split = [np.concatenate([acc_x, x_tmp], axis=0) for acc_x, x_tmp in zip(self._accumulated_data[0], x_split)]
             y_split = [np.concatenate([acc_y, y_tmp], axis=0) for acc_y, y_tmp in zip(self._accumulated_data[1], y_split)]
             # remove any duplicates
@@ -446,7 +452,7 @@ class FunctionApproximator(object):
         n_val = x_val.shape[0]
         # if maximum number of training samples is set, use a subset
         if max_training_data is not None and n_train > max_training_data:
-            print("Using random subset of data")
+            self.logger.info("Using random subset of data")
             idx = np.random.permutation(range(n_train))[:max_training_data]
             x_train = x_train[idx]
             y_train = y_train[idx]
@@ -454,8 +460,8 @@ class FunctionApproximator(object):
                 idx_val = np.random.permutation(range(n_val))[:max_training_data]
                 x_val = x_val[idx_val]
                 y_val = y_val[idx_val]
-        print("Training data shapes: x {}, y: {}".format(x_train.shape, y_train.shape))
-        print("Validation data shapes: x {}, y: {}".format(x_val.shape, y_val.shape))
+        self.logger.info("Training data shapes: x {}, y: {}".format(x_train.shape, y_train.shape))
+        self.logger.info("Validation data shapes: x {}, y: {}".format(x_val.shape, y_val.shape))
 
         train_tensor = [torch.from_numpy(x_train.astype(np.float32)), torch.from_numpy(y_train.astype(np.float32))]
         train_dataset = torch.utils.data.TensorDataset(*train_tensor)
@@ -491,10 +497,10 @@ class FunctionApproximator(object):
                 best_model = copy.deepcopy(self.model)
 
             if not epoch % 50:
-                print(f"Epoch {epoch}: loss: {loss:.3}, val loss: {val_loss:.3}")
+                self.logger.info(f"Epoch {epoch}: loss: {loss:.3}, val loss: {val_loss:.3}")
 
             if epoch - best_epoch > self.patience:
-                print(f"Epoch {epoch}: Reached patience")
+                self.logger.info(f"Epoch {epoch}: Reached patience")
                 break
 
         # load best model
@@ -629,9 +635,10 @@ class FunctionApproximator(object):
 
     def save_approximator(self, fname="fa.pkl"):
         """Save the attributes of the function approximator"""
-        print("Saving approximator as a dictionary of attributes")
+        self.logger.info("Saving approximator as a dictionary of attributes")
         attr_dict = vars(self)
         attr_dict.pop("model")
+        attr_dict.pop("logger")
         output_file = self.outdir + fname
         with open(output_file, "wb") as f:
             six.moves.cPickle.dump(attr_dict, f, protocol=six.moves.cPickle.HIGHEST_PROTOCOL)
@@ -703,16 +710,45 @@ class FATrainer(Trainer):
 
     def __init__(self, trainer_dict, manager=None, output='./'):
         self.trainer_dict = trainer_dict
+        self.logger = None
         super(FATrainer, self).__init__(manager=manager, output=output)
+
+    def create_logger(self, path="./"):
+        """Create logger"""
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+        fh = logging.FileHandler(path + "fa.log")
+        fh.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s',
+            datefmt='%H:%M'))
+        self.logger.addHandler(fh)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s',
+                datefmt='%H:%M')
+        ch.setFormatter(formatter)
+        self.logger.addHandler(ch)
+
+    def _setup_directories(self, outdir):
+        """Setup final output directory and a temporary directory for use during training"""
+        if not os.path.exists(outdir):
+            os.mkdir(outdir)
 
     def initialise(self):
         """
         Import functions that use tensorflow and initialise the function approximator
         """
         self.trainer_dict["outdir"] = self.output + "fa/"
-        self.fa = FunctionApproximator(trainer_dict=self.trainer_dict, verbose=1)
+        self._setup_directories(self.trainer_dict["outdir"])
+        self.create_logger(self.trainer_dict["outdir"])
+        self.logger.info('Intialising')
+        self.fa = FunctionApproximator(trainer_dict=self.trainer_dict,
+                                       verbose=1)
         # save so it's easier to init other fa
         self.initialised = True
+        if self.manager is not None:
+            self.producer_pipe.send(1)
 
     def train(self, payload):
         """
@@ -726,14 +762,18 @@ class FATrainer(Trainer):
             points.append(p.values)
             logL.append(p.logL)
         x, y = np.array(points), np.array(logL)
-        print("Function approximator: Training started at: {}".format(time.asctime()))
+        self.logger.info("Training started")
         true_stats, pred_stats = self.fa.train(x, y, accumulate=False, plot=True)
-        print("Function approximator: Training ended at: {}".format(time.asctime()))
+        self.logger.info("Training ended")
 
         mean_ratio = true_stats[0] / pred_stats[0]
         std_ratio = true_stats[1] / pred_stats[1]
 
+        self.logger.info(f"Mean ratio: {mean_ratio}")
+        self.logger.info(f"STD ratio: {std_ratio}")
+
         if (np.abs(1. - mean_ratio) < 0.05) and (np.abs(1. - std_ratio) < 0.05):
+            self.logger.info("Enabling FA")
             self.manager.use_fa.value = 1
 
         self.manager.trained.value = 1
