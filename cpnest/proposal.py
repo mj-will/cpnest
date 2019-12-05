@@ -7,7 +7,7 @@ import random
 from random import sample,gauss,randrange,uniform
 from scipy.interpolate import LSQUnivariateSpline
 from scipy.signal import savgol_filter
-from scipy.stats import multivariate_normal
+from scipy.stats import multivariate_normal, truncnorm
 from scipy.special import logsumexp
 
 from cpnest.parameter import LivePoint
@@ -249,11 +249,14 @@ class EnsembleEigenVector(EnsembleProposal):
             out[n]+=jumpsize*self.eigen_vectors[k,i]
         return out
 
-class FlowProposal(Proposal):
+class FlowProposal(EnsembleProposal):
 
     torch = __import__('torch')
 
-    def __init__(self, model_dict=None, names=None, device='cpu'):
+    def __init__(self, model_dict=None, names=None, device='cpu', priors=None):
+
+        super(FlowProposal, self).__init__()
+
         from .flowtrainer import FlowModel
         self.model = FlowModel(**model_dict, device=device)                     # Flow model
         self.ndims = model_dict["n_inputs"]
@@ -264,28 +267,45 @@ class FlowProposal(Proposal):
         self.r2 = None                         # Radius squared
         self.populated = False                 # Is sample list populated
         self.names = names                     # Names of samples for LivePoint
+        if priors is not None:
+            self.setup_normalisation(priors)
+        self.previous_sample = None
 
     @staticmethod
     def unpack_live_point(point):
         """Return the necessary information from an instance of cpnest.parameter.LivePoint"""
-        return np.array([point.values])
+        return np.frombuffer(point.values)
 
     def make_live_point(self, point):
         """Create an instance of LivePoint with the given inputs"""
         return LivePoint(self.names, d=point)
 
-    def populate(self, point, N=10000):
-        """Populate a pool of latent points"""
-        print("Flow proposal: Populating...")
-        latent_point = self.forward_pass(point)
-        # draw n samples and sort by radius
-        samples = self.draw(self._radius2(latent_point))
-        r2 = self._radius2(samples)
-        idx = np.argsort(r2)
-        self.r2 = r2[idx]
-        print('Radius:', self.r2)
-        self.samples = samples[idx]
-        self.populated = True
+    def setup_normalisation(self, priors):
+        """Setup the normalisation given the priors"""
+        p_max = np.max(priors, axis=0)
+        p_min = np.min(priors, axis=0)
+
+        def rescale_input(x):
+            """Redefine the input rescaling"""
+            return 2. * ((x - p_min) / (p_max - p_min)) - 1
+
+        def rescale_output(x):
+            """Redifine the output rescaling"""
+            return ((p_max - p_min) * (x + 1.) / 2.) + p_min
+
+        # over-ride defaults
+        self.rescale_input = rescale_input
+        self.rescale_output = rescale_output
+
+    @staticmethod
+    def rescale_input(x):
+        """Placeholder method"""
+        return x
+
+    @staticmethod
+    def rescale_output(x):
+        """Placeholder method"""
+        return x
 
     def forward_pass(self, point):
         """Pass a vector of points through the model"""
@@ -304,31 +324,118 @@ class FlowProposal(Proposal):
     def load_weights(self, weights_file):
         """Update the model from a weights file"""
         self.model.load_state_dict(self.torch.load(weights_file))
+        self.model.eval()
+        self.populated = False
 
     def _radius2(self, latent_point):
         """Calculate the radius of a latent_point"""
         return np.sum(latent_point**2., axis=-1)
 
-    def draw(self, r2, N=10000):
+    def populate(self, old_r2, N=10000):
+        """Populate a pool of latent points"""
+        print("Flow proposal: Populating...")
+        # draw n samples and sort by radius
+        latent_samples = self.draw(old_r2)
+        r2 = self._radius2(latent_samples)
+        idx = np.argsort(r2)
+        self.r2 = r2[idx]
+        #print('Radius:', self.r2)
+        latent_samples = latent_samples[idx]
+        # rescale given priors used intially
+        samples = self.backward_pass(latent_samples)
+        #print(samples)
+        self.samples = self.rescale_output(samples)
+        #print(self.samples)
+        self.populated = True
+        print('Populated')
+
+
+    def draw(self, r2, N=100000):
+        """Draw N samples from a region within the worst point"""
+        r = np.sqrt(r2)
+        samples = np.concatenate([[truncnorm.rvs(-r, r, size=N)] for _ in range(self.ndims)], axis=0).T
+        # remove points outside bounds
+        samples = samples[np.where(np.sum(samples**2., axis=-1) < r2 )]
+        return samples
+
+    def draw_alt(self, r2, N=10000):
         """Draw N samples from a region within the worst point"""
         samples = np.zeros([0, self.ndims])
         while samples.shape[0] < N:
             s = np.random.multivariate_normal(self.mu, self.sigma, int(1e5))
-            accepted = s[np.where(np.sum(s**2., axis=1) < r2)]
+            accepted = s[np.where(np.sum(s**2., axis=-1) < r2)]
             samples = np.concatenate([samples, accepted], axis=0)
         return samples
 
     def get_sample(self, old_sample):
         """Get a new sample within the contour defined by the old sample"""
         old_sample = self.unpack_live_point(old_sample)
-        old_latent = self.forward_pass(old_sample)
-        old_r2 = self._radius2(old_latent)
-        if not self.populated:
-            self.populate(old_r2)
-        idx = np.argmin(self.r2 < old_r2)
+        if np.all(old_sample == self.previous_sample) and self.populated:
+            idx = -1
+        else:
+            old_sample = self.rescale_input(old_sample)
+            #print('Sample:', old_sample)
+            old_latent = self.forward_pass(old_sample)
+            #print('Latent:', old_latent)
+            old_r2 = self._radius2(old_latent)
+            #print('Sample R2:',  old_r2)
+            if not self.populated:
+                self.populate(old_r2)
+            if old_r2 > self.r2[-1]:
+                idx = -1
+            else:
+                idx = np.argmin(self.r2 < old_r2)
+        #print('Index of replacement:', idx)
         new_sample = self.samples[idx]
         self.r2 = self.r2[:idx]
         self.samples = self.samples[:idx]
+        if not self.r2.size:
+            self.populated = False
+        #print('New sample:', new_sample)
+        self.previous_sample = new_sample
+        return self.make_live_point(new_sample)
+
+
+class RandomFlowProposal(FlowProposal):
+
+    def __int__(self, model_dict=None, names=None, device='cpu', priors=None):
+
+        super(RandomFlowProposal, self).__init(model_dict, names, device, priors)
+
+    def populate(self, old_r2, N=int(1e6)):
+        """Populate a pool of latent points"""
+        print("Flow proposal: Populating...")
+        # draw n samples and sort by radius
+        latent_samples = self.draw(old_r2, N)
+        self.r2 = self._radius2(latent_samples)
+        #print('Radius:', self.r2)
+        latent_samples = latent_samples
+        # rescale given priors used intially
+        samples = self.backward_pass(latent_samples)
+        self.samples = self.rescale_output(samples)
+        # array of indices to take random draws from
+        self.indices = np.random.permutation(len(samples))
+        self.populated = True
+        print('Populated')
+
+    def get_sample(self, old_sample):
+        """Get a new sample within the contour defined by the old sample"""
+        if not self.populated:
+            # Populate if unpopulated
+            # This requires pass through the flows
+            old_sample = self.unpack_live_point(old_sample)
+            old_sample = self.rescale_input(old_sample)
+            old_latent = self.forward_pass(old_sample)
+            old_r2 = self._radius2(old_latent)
+            self.populate(old_r2)
+        # idx = np.random.randint(len(self.samples))
+        idx = self.indices[0]
+        new_sample = self.samples[idx]
+        self.indices = self.indices[1:]
+        #self.r2 = np.delete(self.r2, idx, axis=0)
+        #self.samples = np.delete(self.samples, idx, axis=0)
+        if not self.indices.size:
+            self.populated = False
         return self.make_live_point(new_sample)
 
 
