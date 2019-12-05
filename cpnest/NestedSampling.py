@@ -184,8 +184,7 @@ class NestedSampler(object):
         self.trainer_type = trainer_type
         if trainer:
             self.n_training_samples = trainer_dict['n_training_samples']
-            if trainer_type == 'function_approximator':
-                self.n_likelihood_evaluations = trainer_dict['n_likelihood_evaluations']
+            self.n_likelihood_evaluations = trainer_dict['n_likelihood_evaluations']
             print("CPnest Trainer: Training enabled in nested sampling")
         self.initialised    = False
 
@@ -272,6 +271,7 @@ class NestedSampler(object):
                     self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
                     self.rejected += 1
             self.acceptance = float(self.accepted)/float(self.accepted + self.rejected)
+            # TODO: add criteria for FA likelihood to be disabled
             if self.verbose:
                 sys.stderr.write("{0:d}: n:{1:4d} NS_acc:{2:.3f} S{3:d}_acc:{4:.3f} sub_acc:{5:.3f} H: {6:.2f} logL {7:.5f} --> {8:.5f} dZ: {9:.3f} logZ: {10:.3f} logLmax: {11:.2f}\n"\
                 .format(self.iteration, self.jumps*loops, self.acceptance, k, acceptance, sub_acceptance, self.state.info,\
@@ -318,11 +318,31 @@ class NestedSampler(object):
             self.manager.training.value = 1
         self.initialised=True
 
+
+    def initialise_trainers(self):
+        """
+        Initialise the models in the training thread and sampling threads
+        """
+        if self.trainer:
+            nthreads=self.manager.nthreads
+            for i in range(nthreads):
+                self.manager.consumer_pipes[i].send(CPCommand(ctype='init'))
+            self.manager.trainer_consumer_pipe.send(CPCommand(ctype='init'))
+            # force wait until initialised
+            print('Waiting for trainer init')
+            for i in range(nthreads):
+                print('Thread ', i)
+                self.manager.consumer_pipes[i].recv()
+            print('Trainer thread')
+            self.manager.trainer_consumer_pipe.recv()
+            print('Trainer init complete')
+
     def nested_sampling_loop(self):
         """
         main nested sampling loop
         """
         if not self.initialised:
+            self.initialise_trainers()
             self.reset()
         if self.prior_sampling:
             for i in range(self.Nlive):
@@ -349,12 +369,12 @@ class NestedSampler(object):
                     #print("CPnest trainer: training statement")
                     if self.manager.trained.value:
                         print("Trainer: training complete")
+                        self.manager.trained.value = 0
+                        self.manager.training.value = 0
                         if self.trainer_type == 'function_approximator':
                             weights_file = self.manager.trainer_consumer_pipe.recv()
                             for c in self.manager.consumer_pipes:
                                 c.send(CPCommand('set_weights', payload=weights_file))
-                            self.manager.trained.value = 0
-                            self.manager.training.value = 0
                             if self.manager.use_fa.value and not using_fa:
                                 print("Function approximator: switching to approximate likelihood")
                                 for c in self.manager.consumer_pipes:
@@ -366,18 +386,21 @@ class NestedSampler(object):
                                 print("Function approximator: peformance not high enough, retraining")
                                 retrain = True
                         elif self.trainer_type == 'flow':
+                            print('Trainer: checking performance for flow')
                             weights_file = self.manager.trainer_consumer_pipe.recv()
-                            print("Trainer: enabling flow")
-                            for c in self.manager.consumer_pipes:
-                                c.send(CPCommand('set_weights', payload=weights_file))
-                            self.manager.trained.value = 0
-                            self.manager.training.value = 0
-                            if self.manager.use_flow.value and not using_flow:
-                                print("Flows: switiching to flow proposal")
+                            if self.manager.use_flow.value:
+                                print("Trainer: updating flow")
                                 for c in self.manager.consumer_pipes:
-                                    c.send(CPCommand('switch_proposal', payload='flow'))
-                                using_flow = True
-                            self.manager.use_flow.value = 0
+                                    c.send(CPCommand('set_weights', payload=weights_file))
+                                if not using_flow:
+                                    print("Flows: switiching to flow proposal")
+                                    for c in self.manager.consumer_pipes:
+                                        c.send(CPCommand('switch_proposal', payload='flow'))
+                                    using_flow = True
+                                    flow_count = 0
+                                self.manager.use_flow.value = 0
+                            else:
+                                print("Flow: performance not high enough")
 
                         else:
                             raise NotImplementedError("Trainer not implemented, choose from function approximator or flow")
