@@ -71,7 +71,7 @@ class FlowTrainer(Trainer):
         self.manager=None
         super(FlowTrainer, self).__init__(manager=manager, output=output)
         self.outdir = output
-        self.create_logger(output)
+        self.logger = logging.getLogger("CPNest")
         self.priors = None
         self.intialised = False
         self.normalise = False
@@ -84,21 +84,6 @@ class FlowTrainer(Trainer):
         self.patience = 100
 
         self._setup_from_input_dict(trainer_dict)
-
-    def create_logger(self, path="./"):
-        """Create logger"""
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
-        fh = logging.FileHandler(path + "flow.log")
-        fh.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s'))
-        self.logger.addHandler(fh)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s')
-        ch.setFormatter(formatter)
-        self.logger.addHandler(ch)
 
     def save_input(self, attr_dict):
         """Save the dictionary used as an inputs as a JSON file"""

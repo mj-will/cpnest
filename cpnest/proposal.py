@@ -1,5 +1,6 @@
 from __future__ import division
 from functools import reduce
+import logging
 import numpy as np
 from math import log,sqrt,fabs,exp
 from abc import ABCMeta,abstractmethod
@@ -258,6 +259,7 @@ class FlowProposal(EnsembleProposal):
         super(FlowProposal, self).__init__()
 
         from .flowtrainer import FlowModel
+        self.logger = logging.getLogger("CPNest")
         self.model = FlowModel(**model_dict, device=device)                     # Flow model
         self.ndims = model_dict["n_inputs"]
         self.mu = np.zeros(self.ndims)
@@ -333,21 +335,18 @@ class FlowProposal(EnsembleProposal):
 
     def populate(self, old_r2, N=10000):
         """Populate a pool of latent points"""
-        print("Flow proposal: Populating...")
+        self.logger.debug("Populating proposal")
         # draw n samples and sort by radius
         latent_samples = self.draw(old_r2)
         r2 = self._radius2(latent_samples)
         idx = np.argsort(r2)
         self.r2 = r2[idx]
-        #print('Radius:', self.r2)
         latent_samples = latent_samples[idx]
         # rescale given priors used intially
         samples = self.backward_pass(latent_samples)
-        #print(samples)
         self.samples = self.rescale_output(samples)
-        #print(self.samples)
         self.populated = True
-        print('Populated')
+        self.logger.debug('Proposal populated')
 
 
     def draw(self, r2, N=100000):
@@ -374,24 +373,19 @@ class FlowProposal(EnsembleProposal):
             idx = -1
         else:
             old_sample = self.rescale_input(old_sample)
-            #print('Sample:', old_sample)
             old_latent = self.forward_pass(old_sample)
-            #print('Latent:', old_latent)
             old_r2 = self._radius2(old_latent)
-            #print('Sample R2:',  old_r2)
             if not self.populated:
                 self.populate(old_r2)
             if old_r2 > self.r2[-1]:
                 idx = -1
             else:
                 idx = np.argmin(self.r2 < old_r2)
-        #print('Index of replacement:', idx)
         new_sample = self.samples[idx]
         self.r2 = self.r2[:idx]
         self.samples = self.samples[:idx]
         if not self.r2.size:
             self.populated = False
-        #print('New sample:', new_sample)
         self.previous_sample = new_sample
         return self.make_live_point(new_sample)
 
@@ -404,11 +398,10 @@ class RandomFlowProposal(FlowProposal):
 
     def populate(self, old_r2, N=int(1e6)):
         """Populate a pool of latent points"""
-        print("Flow proposal: Populating...")
+        self.logger.debug("Populating proposal")
         # draw n samples and sort by radius
         latent_samples = self.draw(old_r2, N)
         self.r2 = self._radius2(latent_samples)
-        #print('Radius:', self.r2)
         latent_samples = latent_samples
         # rescale given priors used intially
         samples = self.backward_pass(latent_samples)
@@ -416,7 +409,7 @@ class RandomFlowProposal(FlowProposal):
         # array of indices to take random draws from
         self.indices = np.random.permutation(len(samples))
         self.populated = True
-        print('Populated')
+        self.logger.debug('Proposal populated')
 
     def get_sample(self, old_sample):
         """Get a new sample within the contour defined by the old sample"""

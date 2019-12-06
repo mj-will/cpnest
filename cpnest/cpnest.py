@@ -12,8 +12,6 @@ from multiprocessing import Lock
 from multiprocessing.sharedctypes import Value, Array
 from multiprocessing.managers import SyncManager
 
-import multiprocessing_logging
-
 import cProfile
 
 from .logger import start_logger
@@ -124,7 +122,7 @@ class CPNest(object):
                 raise ValueError("If using a trainer must specifiy three arguments: trainer_class, trainer_dict, trainer_type")
             else:
                 self.trainable = True
-                print("CPnest Trainer: Trainer enabled")
+                self.logger.info("Trainer enabled")
         else:
             self.trainable = False
         if self.trainable:
@@ -239,7 +237,7 @@ class CPNest(object):
         try:
             self.NS.nested_sampling_loop()
             if self.trainable:
-                print("Waiting for training to end")
+                self.logger.warning("Waiting for training to end")
                 self.trainer_process.join()
             for each in self.process_pool:
                 each.join()
