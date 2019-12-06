@@ -255,7 +255,7 @@ class FunctionApproximator(object):
     def _setup_model(self, trainer_dict):
         """Setup up the model"""
         self.model = SplitNetwork(**trainer_dict)
-        self.logger.info("Model:", self.model)
+        self.logger.info("Model: {}".format(self.model))
         self.model.to(self.device)
 
     def _setup_optimiser(self):
@@ -710,25 +710,8 @@ class FATrainer(Trainer):
 
     def __init__(self, trainer_dict, manager=None, output='./'):
         self.trainer_dict = trainer_dict
-        self.logger = None
+        self.logger = logging.getLogger("CPNest")
         super(FATrainer, self).__init__(manager=manager, output=output)
-
-    def create_logger(self, path="./"):
-        """Create logger"""
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
-        fh = logging.FileHandler(path + "fa.log")
-        fh.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s',
-            datefmt='%H:%M'))
-        self.logger.addHandler(fh)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)-8s: %(message)s',
-                datefmt='%H:%M')
-        ch.setFormatter(formatter)
-        self.logger.addHandler(ch)
 
     def _setup_directories(self, outdir):
         """Setup final output directory and a temporary directory for use during training"""
@@ -741,7 +724,6 @@ class FATrainer(Trainer):
         """
         self.trainer_dict["outdir"] = self.output + "fa/"
         self._setup_directories(self.trainer_dict["outdir"])
-        self.create_logger(self.trainer_dict["outdir"])
         self.logger.info('Intialising')
         self.fa = FunctionApproximator(trainer_dict=self.trainer_dict,
                                        verbose=1)
