@@ -1,6 +1,7 @@
 from __future__ import division
 import sys
 import os
+import logging
 import numpy as np
 from math import log
 from collections import deque
@@ -80,6 +81,9 @@ class Sampler(CPThread):
         self.resume_file = resume_file
         self.manager = manager
         self.logLmin = self.manager.logLmin
+        self.logLmax = self.manager.logLmax
+
+        self.logger         = logging.getLogger('CPNest')
 
         if proposal is None:
             self.proposal = DefaultProposalCycle()
@@ -105,8 +109,8 @@ class Sampler(CPThread):
         self.trainer_type = trainer_type
         self.trainer_initialised = False
         if trainer_type is not None:
-            print('Sampler: trainer enabled')
-            print(f'       : type: {trainer_type}')
+            self.logger.debug('Trainer enabled')
+            self.logger.debug(f'Type: {trainer_type}')
             self.trainer_dict = trainer_dict
         # set the logL function so it can be swapped
         self._set_log_likelihood()
@@ -167,8 +171,8 @@ class Sampler(CPThread):
                 if np.isfinite(p.logP): break
             p.logL=self.logL(p)
             if p.logL is None or not np.isfinite(p.logL):
-                print("Warning: received non-finite logL value {0} with parameters {1}".format(str(p.logL), str(p)))
-                print("You may want to check your likelihood function to improve sampling")
+                self.logger.warning("Received non-finite logL value {0} with parameters {1}".format(str(p.logL), str(p)))
+                self.logger.warning("You may want to check your likelihood function to improve sampling")
             self.evolution_points.append(p)
 
         self.proposal.set_ensemble(self.evolution_points)
@@ -232,7 +236,7 @@ class Sampler(CPThread):
         try:
             self._produce_sample(p)
         except CheckPoint:
-            print("Checkpoint excepted in sampler")
+            self.logger.critical("Checkpoint excepted in sampler")
             self.checkpoint()
 
     def _produce_sample(self, p):
@@ -250,9 +254,6 @@ class Sampler(CPThread):
         if self.manager.checkpoint_flag.value:
             self.checkpoint()
             sys.exit(130)
-
-        #if self.logLmin.value==np.inf:
-        #    break
 
         if p is None:
             raise ValueError("Sampler: p is None")
@@ -273,7 +274,7 @@ class Sampler(CPThread):
 
     def end_sampling(self):
 
-        sys.stderr.write("Sampler process {0!s}: MCMC samples accumulated = {1:d}\n".format(os.getpid(),len(self.samples)))
+        self.logger.critical("Sampler process {0!s}: MCMC samples accumulated = {1:d}".format(os.getpid(),len(self.samples)))
         self.samples.extend(self.evolution_points)
         import numpy.lib.recfunctions as rfn
         if self.verbose >=3:
@@ -282,15 +283,15 @@ class Sampler(CPThread):
             np.savetxt(os.path.join(self.output,'mcmc_chain_%s.dat'%os.getpid()),
                        self.mcmc_samples.ravel(),header=' '.join(self.mcmc_samples.dtype.names),
                        newline='\n',delimiter=' ')
-            sys.stderr.write("Sampler process {0!s}: saved {1:d} mcmc samples in {2!s}\n".format(os.getpid(),len(self.samples),'mcmc_chain_%s.dat'%os.getpid()))
-        sys.stderr.write("Sampler process {0!s} - mean acceptance {1:.3f}: exiting\n".format(os.getpid(), float(self.mcmc_accepted)/float(self.mcmc_counter)))
+            self.logger.critical("Sampler process {0!s}: saved {1:d} mcmc samples in {2!s}".format(os.getpid(),len(self.samples),'mcmc_chain_%s.dat'%os.getpid()))
+        self.logger.critical("Sampler process {0!s} - mean acceptance {1:.3f}: exiting".format(os.getpid(), float(self.mcmc_accepted)/float(self.mcmc_counter)))
         return 0
 
     def checkpoint(self):
         """
         Checkpoint its internal state
         """
-        print('Checkpointing Sampler')
+        self.logger.info('Checkpointing Sampler')
         with open(self.resume_file, "wb") as f:
             pickle.dump(self, f)
 
@@ -322,7 +323,7 @@ class Sampler(CPThread):
                 self.flow_proposal = None
                 self.default_proposal = None
             self.trainer_initialised = True
-            print("Sending init confirmation")
+            self.logger.debug("Sending init confirmation")
             self.producer_pipe.send(1)
 
     @classmethod
@@ -331,12 +332,13 @@ class Sampler(CPThread):
         Resumes the interrupted state from a
         checkpoint pickle file.
         """
-        print('Resuming Sampler from '+resume_file)
+        self.logger.info('Resuming Sampler from '+resume_file)
         with open(resume_file, "rb") as f:
             obj = pickle.load(f)
         obj.model   = model
         obj.manager = manager
         obj.logLmin = obj.manager.logLmin
+        obj.logLmax = obj.manager.logLmax
         obj.producer_pipe , obj.thread_id = obj.manager.connect_producer()
         return(obj)
 
@@ -345,6 +347,7 @@ class Sampler(CPThread):
         # Remove the unpicklable entries.
         del state['model']
         del state['logLmin']
+        del state['logLmax']
         del state['manager']
         del state['producer_pipe']
         del state['thread_id']
@@ -377,7 +380,11 @@ class MetropolisHastingsSampler(Sampler):
                 if newparam.logP-logp_old + self.proposal.log_J > log(random()):
                     newparam.logL = self.proposal_logL(newparam)
                     if newparam.logL > logLmin:
+                        # TODO: check this
+                        # if accepted it's computing the true logl
+                        # perhaps only do this if while loop breaks
                         newparam.logL = self.logL(newparam)
+                        self.logLmax.value = max(self.logLmax.value, newparam.logL)
                         oldparam = newparam.copy()
                         logp_old = newparam.logP
                         sub_accepted+=1
@@ -404,6 +411,8 @@ class HamiltonianMonteCarloSampler(Sampler):
     """
     def yield_sample(self, logLmin):
 
+        global_lmax = self.logLmax.value
+
         while True:
 
             sub_accepted    = 0
@@ -418,6 +427,7 @@ class HamiltonianMonteCarloSampler(Sampler):
                 if self.proposal.log_J > np.log(random()):
 
                     if newparam.logL > logLmin:
+                        global_lmax = max(global_lmax, newparam.logL)
                         oldparam        = newparam.copy()
                         sub_accepted   += 1
 
@@ -430,6 +440,7 @@ class HamiltonianMonteCarloSampler(Sampler):
             self.mcmc_accepted += sub_accepted
             self.mcmc_counter  += sub_counter
             self.acceptance     = float(self.mcmc_accepted)/float(self.mcmc_counter)
+            self.logLmax.value = global_lmax
 
             for p in self.proposal.proposals:
                 p.update_time_step(self.acceptance)
@@ -447,5 +458,3 @@ class HamiltonianMonteCarloSampler(Sampler):
         self.evolution_points.append(p)
         self.evolution_points.rotate(-k)
         return self.proposal.get_sample(p.copy(),logLmin=p.logL)
-
-
