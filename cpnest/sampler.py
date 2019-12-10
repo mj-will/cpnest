@@ -113,7 +113,6 @@ class Sampler(CPThread):
             self.logger.debug(f'Type: {trainer_type}')
             self.trainer_dict = trainer_dict
         # set the logL function so it can be swapped
-        self._set_log_likelihood()
 
 
     def receiver(self):
@@ -136,9 +135,6 @@ class Sampler(CPThread):
                 return 0
             elif cmd.ctype == 'set_weights':
                 self.trainer_model.load_weights(cmd.payload)
-                return 0
-            elif cmd.ctype == 'switch_logL':
-                self.set_proposal_log_likelihood(cmd.payload)
                 return 0
             elif cmd.ctype == 'switch_proposal':
                 self.set_proposal(cmd.payload)
@@ -169,7 +165,7 @@ class Sampler(CPThread):
                 p = self.model.new_point()
                 p.logP = self.model.log_prior(p)
                 if np.isfinite(p.logP): break
-            p.logL=self.logL(p)
+            p.logL=self.model.log_likelihood(p)
             if p.logL is None or not np.isfinite(p.logL):
                 self.logger.warning("Received non-finite logL value {0} with parameters {1}".format(str(p.logL), str(p)))
                 self.logger.warning("You may want to check your likelihood function to improve sampling")
@@ -184,22 +180,6 @@ class Sampler(CPThread):
 
         self.proposal.set_ensemble(self.evolution_points)
         self.initialised=True
-
-    def _set_log_likelihood(self):
-        """Set likelihood to default using model"""
-        self.logL = self.model.log_likelihood
-        self.set_proposal_log_likelihood()
-
-    def set_proposal_log_likelihood(self, logL_type='model'):
-        """Switch the likelihood being used"""
-        if logL_type == 'fa':
-            self.proposal_logL = self.trainer_model.predict
-            #self.logL_type = 'fa'
-        elif logL_type == 'model':
-            self.proposal_logL = self.model.log_likelihood
-            #self.logL_type = 'model'
-        else:
-            raise ValueError("Unknown logL type")
 
     def set_proposal(self, proposal_type='default'):
         """Switch the proposals being used"""
@@ -300,12 +280,7 @@ class Sampler(CPThread):
         Import flow proposal and initialise it
         """
         if not self.trainer_initialised:
-            if self.trainer_type == 'function_approximator':
-                from .fatrainer import FunctionApproximator
-                self.trainer_model = FunctionApproximator(
-                        trainer_dict=self.trainer_dict, verbose=1,
-                        trainable=False, device=self.trainer_dict["sampler_device"])
-            elif self.trainer_type == 'flow':
+            if self.trainer_type == 'flow':
                 from .proposal import FlowProposal, RandomFlowProposal
                 try:
                     device = self.trainer_dict["proposal_device"]
@@ -378,12 +353,8 @@ class MetropolisHastingsSampler(Sampler):
                 newparam.logP = self.model.log_prior(newparam)
 
                 if newparam.logP-logp_old + self.proposal.log_J > log(random()):
-                    newparam.logL = self.proposal_logL(newparam)
+                    newparam.logL = self.model.log_likelihood(newparam)
                     if newparam.logL > logLmin:
-                        # TODO: check this
-                        # if accepted it's computing the true logl
-                        # perhaps only do this if while loop breaks
-                        newparam.logL = self.logL(newparam)
                         self.logLmax.value = max(self.logLmax.value, newparam.logL)
                         oldparam = newparam.copy()
                         logp_old = newparam.logP
