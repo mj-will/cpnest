@@ -156,6 +156,7 @@ class NestedSampler(object):
         self.logger         = logging.getLogger('CPNest')
         self.model          = model
         self.manager        = manager
+        self.nthreads       = manager.nthreads
         self.prior_sampling = prior_sampling
         self.setup_random_seed(seed)
         self.verbose        = verbose
@@ -324,18 +325,24 @@ class NestedSampler(object):
         Initialise the models in the training thread and sampling threads
         """
         if self.trainer:
-            nthreads=self.manager.nthreads
-            for i in range(nthreads):
+            for i in range(self.nthreads):
                 self.manager.consumer_pipes[i].send(CPCommand(ctype='init'))
             self.manager.trainer_consumer_pipe.send(CPCommand(ctype='init'))
             # force wait until initialised
             self.logger.debug('Waiting for trainer init')
-            for i in range(nthreads):
+            for i in range(self.nthreads):
                 self.logger.debug('Thread {}'.format(i))
                 self.manager.consumer_pipes[i].recv()
             self.logger.debug('Trainer thread')
             self.manager.trainer_consumer_pipe.recv()
             self.logger.debug('Trainer init complete')
+            # setup variables
+            self.training_data = list()  # Data that has yet to be trained on
+            self.retrain = False
+            self.flow_enabled = False
+            self.flow_count = 0
+            self.state_update = self._flow_proposal_state_update
+            self.state_check = self._flow_proposal_state_check
 
     def nested_sampling_loop(self):
         """
@@ -358,92 +365,13 @@ class NestedSampler(object):
 
         try:
             i=0
-            training_data = list()  # Data that has yet to be trained on
-            retrain = False         # Retrain flag
-            using_fa = False        # using fa instead of analytic likelihood
-            using_flow = False
-            fa_count = 0            # count of points computed with approximator likelihood
-            flow_count = 0
-            nthreads = self.manager.nthreads
             while self.condition > self.tolerance:
-                if self.trainer:
-                    if self.manager.trained.value:
-                        self.logger.info("Training complete")
-                        self.manager.trained.value = 0
-                        self.manager.training.value = 0
-                        if self.trainer_type == 'function_approximator':
-                            weights_file = self.manager.trainer_consumer_pipe.recv()
-                            for c in self.manager.consumer_pipes:
-                                c.send(CPCommand('set_weights', payload=weights_file))
-                            if self.manager.use_fa.value and not using_fa:
-                                self.logger.info("Switching to approximate likelihood")
-                                for c in self.manager.consumer_pipes:
-                                    c.send(CPCommand('switch_logL', payload='fa'))
-                                self.logger.info("Using approximate likelihood for {0} iterations".format(self.n_likelihood_evaluations))
-                                using_fa = True
-                                self.manager.use_fa.value = 0
-                            else:
-                                self.logger.info("Function approximator peformance not high enough, retraining")
-                                retrain = True
-                        elif self.trainer_type == 'flow':
-                            self.logger.info('Checking performance for flow')
-                            weights_file = self.manager.trainer_consumer_pipe.recv()
-                            if self.manager.use_flow.value:
-                                self.logger.info("Updating flow")
-                                for c in self.manager.consumer_pipes:
-                                    c.send(CPCommand('set_weights', payload=weights_file))
-                                if not using_flow:
-                                    self.logger.info("Switiching to flow proposal")
-                                    for c in self.manager.consumer_pipes:
-                                        c.send(CPCommand('switch_proposal', payload='flow'))
-                                    using_flow = True
-                                    flow_count = 0
-                                self.manager.use_flow.value = 0
-                            else:
-                                self.logger.info("Flow performance not high enough, retraining")
-                                retrain = True
 
-                        else:
-                            raise NotImplementedError("Trainer not implemented, choose from function approximator or flow")
-
-                    if (len(self.nested_samples) % self.n_training_samples <= nthreads) or (retrain and len(self.nested_samples) % (self.n_training_samples / 2) <= nthreads):
-                        retrain = False
-                        if not len(self.nested_samples) > nthreads:
-                            pass
-                        elif not self.manager.training.value:
-                            self.logger.info("Training")
-                            if len(training_data):
-                                training_data += self.params
-                                if self.trainer_type == 'function_approximator':
-                                    training_data += self.nested_samples[self.Nlive:]     # include nested samples exclusing initial batch
-                                self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=training_data))
-                                training_data = list()
-                            else:
-                                if self.trainer_type == 'function_approximator':
-                                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params + self.nested_samples[self.Nlive:]))
-                                else:
-                                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
-                            self.manager.training.value = 1
-                        else:
-                            training_data += self.params
+                self.state_update()
 
                 self.consume_sample()
-                if using_fa:
-                    fa_count += nthreads
-                    if fa_count >= self.n_likelihood_evaluations:
-                        self.logger.info("Function approximator: switching to analytic likelihood")
-                        for c in self.manager.consumer_pipes:
-                            c.send(CPCommand('switch_logL', payload='model'))
-                        using_fa = False
-                        fa_count = 0
-                if using_flow:
-                    flow_count += nthreads
-                    if flow_count >= self.n_likelihood_evaluations:
-                        self.logger.info("Switching to default proposal cycle")
-                        for c in self.manager.consumer_pipes:
-                            c.send(CPCommand('switch_proposal', payload='default'))
-                        using_flow = False
-                        flow_count = 0
+
+                self.check_state()
 
                 if self.n_periodic_checkpoint is not None and i % self.n_periodic_checkpoint == 1:
                     self.checkpoint()
@@ -493,45 +421,11 @@ class NestedSampler(object):
         """
         pass
 
-    def _fa_state_update(self):
+    def check_state(self):
         """
-        Update state when using function approximator
+        Check if state should be reset to default
         """
-        if self.manager.trained.value:
-            self.logger.info("Training complete")
-            self.manager.trained.value = 0
-            self.manager.training.value = 0
-            weights_file = self.manager.trainer_consumer_pipe.recv()
-            if self.manager.use_fa.value and not using_fa:
-                for c in self.manager.consumer_pipes:
-                    c.send(CPCommand('set_weights', payload=weights_file))
-                self.logger.info("Switching to approximate likelihood")
-                for c in self.manager.consumer_pipes:
-                    c.send(CPCommand('switch_logL', payload='fa'))
-                self.logger.info("Using approximate likelihood for {0} iterations".format(self.n_likelihood_evaluations))
-                using_fa = True
-                self.manager.use_fa.value = 0
-            else:
-                self.logger.info("Function approximator peformance not high enough, retraining")
-                retrain = True
-
-        if (len(self.nested_samples) % self.n_training_samples <= nthreads) or (retrain and len(self.nested_samples) % (self.n_training_samples / 2) <= nthreads):
-            retrain = False
-            if not len(self.nested_samples) > nthreads:
-                pass
-            elif not self.manager.training.value:
-                self.logger.info("Training")
-                if len(training_data):
-                    training_data += self.params
-                    training_data += self.nested_samples[self.Nlive:]     # include nested samples excluding initial batch
-                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=training_data))
-                    training_data = list()
-                else:
-                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params + self.nested_samples[self.Nlive:]))
-                self.manager.training.value = 1
-            else:
-                training_data += self.params
-
+        pass
 
     def _flow_proposal_state_update(self):
         """
@@ -547,32 +441,46 @@ class NestedSampler(object):
                 self.logger.info("Updating flow")
                 for c in self.manager.consumer_pipes:
                     c.send(CPCommand('set_weights', payload=weights_file))
-                if not using_flow:
+                if not self.flow_enabled:
                     self.logger.info("Switiching to flow proposal")
                     for c in self.manager.consumer_pipes:
                         c.send(CPCommand('switch_proposal', payload='flow'))
-                    using_flow = True
-                    flow_count = 0
+                    self.flow_enabled = True
+                    self.flow_count = 0
                 self.manager.use_flow.value = 0
             else:
                 self.logger.info("Flow performance not high enough, retraining")
-                retrain = True
+                self.retrain = True
 
-        if (len(self.nested_samples) % self.n_training_samples <= nthreads) or (retrain and len(self.nested_samples) % (self.n_training_samples / 2) <= nthreads):
-            retrain = False
-            if not len(self.nested_samples) > nthreads:
+        if (len(self.nested_samples) % self.n_training_samples <= self.nthreads) or (self.retrain and len(self.nested_samples) % (self.n_training_samples / 2) <= self.nthreads):
+            self.retrain = False
+            if not len(self.nested_samples) > self.nthreads:
                 pass
             elif not self.manager.training.value:
                 self.logger.info("Training")
-                if len(training_data):
-                    training_data += self.params
-                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=training_data))
-                    training_data = list()
+                if len(self.training_data):
+                    self.training_data += self.params
+                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.training_data))
+                    self.training_data = list()
                 else:
                     self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
                 self.manager.training.value = 1
             else:
-                training_data += self.params
+                self.training_data += self.params
+
+    def _flow_proposal_state_check(self):
+        """
+        Check if state should be reset to default
+        """
+        if self.flow_enabled:
+            self.flow_count += self.nthreads
+            if self.flow_count >= self.n_likelihood_evaluations:
+                self.logger.info("Switching to default proposal cycle")
+                for c in self.manager.consumer_pipes:
+                    c.send(CPCommand('switch_proposal', payload='default'))
+                self.flow_enabled = False
+                self.flow_count= 0
+
 
 
     def checkpoint(self):
