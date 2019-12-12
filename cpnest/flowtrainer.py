@@ -165,7 +165,7 @@ class FlowTrainer(Trainer):
             self.logger.info("Weights sent")
 
 
-    def _train_on_data(self, samples, plot=True):
+    def _train_on_data(self, samples, plot=False):
         """
         Train the flow on samples
         """
@@ -173,7 +173,8 @@ class FlowTrainer(Trainer):
             self.logger.info("Initialising")
             self.initialise()
         else:
-            self._reset_model()
+            pass
+            #self._reset_model()
         if self.normalise:
             self.logger.info("Using normalisation")
             samples = self.normalise_samples(samples)
