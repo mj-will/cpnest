@@ -2,6 +2,7 @@ from __future__ import division
 import sys
 import os
 import logging
+import time
 import numpy as np
 from math import log
 from collections import deque
@@ -12,6 +13,7 @@ from .proposal import DefaultProposalCycle
 from . import proposal
 from .cpnest import CheckPoint, RunManager
 from .cpthread import CPThread, CPCommand
+from .plot import plot_sampler_chain
 from tqdm import tqdm
 from operator import attrgetter
 
@@ -89,7 +91,6 @@ class Sampler(CPThread):
             self.proposal = DefaultProposalCycle()
         else:
             self.proposal = proposal
-
         self.Nmcmc              = self.initial_mcmc
         self.Nmcmc_exact        = float(self.initial_mcmc)
 
@@ -103,6 +104,7 @@ class Sampler(CPThread):
         self.initialised        = False
         self.output             = output
         self.samples            = [] # the list of samples from the mcmc chain
+        self.proposal_stats     = []
         self.ACLs               = [] # the history of the ACL of the chain, will be used to thin the output, if requested
         self.producer_pipe, self.thread_id = self.manager.connect_producer()
 
@@ -112,8 +114,9 @@ class Sampler(CPThread):
             self.logger.debug('Trainer enabled')
             self.logger.debug(f'Type: {trainer_type}')
             self.trainer_dict = trainer_dict
-        # set the logL function so it can be swapped
 
+        self._proposal_names = dict(DefaultProposalCycle=0, RandomFlowProposal=1)
+        self.yield_sample = self.yield_sample_mcmc
 
     def receiver(self):
         """
@@ -185,8 +188,10 @@ class Sampler(CPThread):
         """Switch the proposals being used"""
         if proposal_type == 'flow':
             self.proposal = self.flow_proposal
+            self.yield_sample = self.yield_sample_rejection
         elif proposal_type == 'default':
             self.proposal = self.default_proposal
+            self.yield_sample = self.yield_sample_mcmc
         else:
             raise ValueError("Unknown proposal type")
 
@@ -265,6 +270,10 @@ class Sampler(CPThread):
                        newline='\n',delimiter=' ')
             self.logger.critical("Sampler process {0!s}: saved {1:d} mcmc samples in {2!s}".format(os.getpid(),len(self.samples),'mcmc_chain_%s.dat'%os.getpid()))
         self.logger.critical("Sampler process {0!s} - mean acceptance {1:.3f}: exiting".format(os.getpid(), float(self.mcmc_accepted)/float(self.mcmc_counter)))
+        #plot_sampler_chain([self.proposal_stats], self.output)
+        np.savetxt(os.path.join(self.output, 'proposal_{}.dat').format(os.getpid()),
+                   self.proposal_stats, header=' '.join(['Proposal', 'Counter', 'Accepted']),
+                   newline='\n', delimiter= ' ', fmt='%i')
         return 0
 
     def checkpoint(self):
@@ -281,7 +290,7 @@ class Sampler(CPThread):
         """
         if not self.trainer_initialised:
             if self.trainer_type == 'flow':
-                from .proposal import FlowProposal, RandomFlowProposal
+                from .proposal import RandomFlowProposal
                 try:
                     device = self.trainer_dict["proposal_device"]
                 except:
@@ -290,10 +299,16 @@ class Sampler(CPThread):
                 self.flow_proposal = RandomFlowProposal(
                         model_dict=self.trainer_dict["model_dict"],
                         names=self.model.names,
-                        priors=self.trainer_dict["priors"],
-                        device=device)
+                        log_prior=self.model.log_prior,
+                        prior_range=self.trainer_dict["priors"],
+                        device=device,
+                        pool_size=self.trainer_dict["pool_size"],
+                        fuzz=self.trainer_dict["fuzz"],
+                        output=self.output + "proposal_{}/".format(os.getpid()))
                 self.trainer_model = self.flow_proposal
                 self.default_proposal = self.proposal
+                self.counter = 0
+                self.accepted = 0
             else:
                 self.flow_proposal = None
                 self.default_proposal = None
@@ -337,7 +352,7 @@ class MetropolisHastingsSampler(Sampler):
     metropolis-hastings acceptance rule
     for :obj:`cpnest.proposal.EnembleProposal`
     """
-    def yield_sample(self, logLmin):
+    def yield_sample_mcmc(self, logLmin):
 
         while True:
 
@@ -345,7 +360,6 @@ class MetropolisHastingsSampler(Sampler):
             sub_accepted = 0
             oldparam = self.evolution_points.popleft()
             logp_old = self.model.log_prior(oldparam)
-
             while True:
 
                 sub_counter += 1
@@ -368,12 +382,128 @@ class MetropolisHastingsSampler(Sampler):
             if self.verbose >=3:
                 self.samples.append(oldparam)
             self.sub_acceptance = float(sub_accepted)/float(sub_counter)
+            #self.proposal_stats.append([self._proposal_names[self.proposal.__class__.__name__], sub_counter, sub_accepted])
             self.estimate_nmcmc()
             self.mcmc_accepted += sub_accepted
             self.mcmc_counter += sub_counter
             self.acceptance    = float(self.mcmc_accepted)/float(self.mcmc_counter)
             # Yield the new sample
             yield (sub_counter, oldparam)
+
+
+class RejectionSampler(MetropolisHastingsSampler):
+    """
+    Standard rejection sampling accpetance rule.
+    Requieres samples to be sampled uniformly from prior and
+    all be independent
+    """
+
+    max_count = 0
+
+    def reset(self):
+        """
+        Initialise the sampler by generating :int:`poolsize` `cpnest.parameter.LivePoint`
+        and distributing them according to :obj:`cpnest.model.Model.log_prior`
+
+        Samples are produced using MCMC criteria
+        """
+        if self.trainer_type is not None:
+            self.initialise_trainer()
+
+        np.random.seed(seed=self.seed)
+        for n in tqdm(range(self.poolsize), desc='SMPLR {} init draw'.format(self.thread_id),
+                disable= not self.verbose, position=self.thread_id, leave=False):
+            while True: # Generate an in-bounds sample
+                p = self.model.new_point()
+                p.logP = self.model.log_prior(p)
+                if np.isfinite(p.logP): break
+            p.logL=self.model.log_likelihood(p)
+            if p.logL is None or not np.isfinite(p.logL):
+                self.logger.warning("Received non-finite logL value {0} with parameters {1}".format(str(p.logL), str(p)))
+                self.logger.warning("You may want to check your likelihood function to improve sampling")
+            self.evolution_points.append(p)
+
+        self.proposal.set_ensemble(self.evolution_points)
+
+        # Now, run evolution so samples are drawn from actual prior
+        for k in tqdm(range(self.poolsize), desc='SMPLR {} init evolve'.format(self.thread_id),
+                disable= not self.verbose, position=self.thread_id, leave=False):
+            _, p = next(self.yield_sample_mcmc(-np.inf))
+
+        self.proposal.set_ensemble(self.evolution_points)
+        self.initialised=True
+
+    def _produce_sample(self, p):
+        """
+        main loop that takes the worst :obj:`cpnest.parameter.LivePoint` and
+        evolves it. Proposed sample is then sent back
+        to :obj:`cpnest.NestedSampler`.
+        """
+        if not self.initialised:
+            self.counter=1
+            self.reset()
+
+        __checkpoint_flag=False # what does this do?
+
+        if self.manager.checkpoint_flag.value:
+            self.checkpoint()
+            sys.exit(130)
+
+        if p is None:
+            raise ValueError("Sampler: p is None")
+        if p == "checkpoint":
+            self.checkpoint()
+            sys.exit(130)
+
+        self.evolution_points.append(p)
+        (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value))
+        # Send the sample to the Nested Sampler
+        self.producer_pipe.send((self.acceptance,self.sub_acceptance,Nmcmc,outParam))
+        # Update the ensemble every now and again
+        if (self.counter%(self.poolsize))==0:
+            self.proposal.set_ensemble(self.evolution_points)
+
+        self.counter += 1
+        return 0
+
+    def yield_sample_rejection(self, logLmin):
+
+        while True:
+
+            sub_counter = 0
+            sub_accepted = 0
+            oldparam = self.evolution_points.popleft()
+            logp_old = self.model.log_prior(oldparam)
+            while True:
+
+                sub_counter += 1
+                newparam = self.proposal.get_sample(oldparam.copy())
+                newparam.logP = self.model.log_prior(newparam)
+
+                if newparam.logP-logp_old + self.proposal.log_J > log(random()):
+                    newparam.logL = self.model.log_likelihood(newparam)
+                    if newparam.logL > logLmin:
+                        self.logLmax.value = max(self.logLmax.value, newparam.logL)
+                        oldparam = newparam.copy()
+                        logp_old = newparam.logP
+                        sub_accepted+=1
+                        break
+                if sub_counter >= self.maxmcmc:
+                    self.max_count += 1
+                    break
+
+            # Put sample back in the stack, unless that sample led to zero accepted points
+            if sub_accepted:
+                self.evolution_points.append(oldparam)
+            if self.verbose >=3:
+                self.samples.append(oldparam)
+            self.sub_acceptence = float(sub_accepted) / float(sub_counter)
+            self.proposal_stats.append([self._proposal_names[self.proposal.__class__.__name__], sub_counter, sub_accepted])
+            self.mcmc_accepted += sub_accepted
+            self.mcmc_counter += sub_counter
+            # Yield the new sample
+            yield (sub_counter, oldparam)
+
 
 class HamiltonianMonteCarloSampler(Sampler):
     """
