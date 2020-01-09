@@ -2,7 +2,7 @@
 # coding: utf-8
 
 import multiprocessing as mp
-from ctypes import c_double, c_int
+from ctypes import c_double, c_int, c_char_p, c_char
 import numpy as np
 import os
 import sys
@@ -101,7 +101,7 @@ class CPNest(object):
         self.logger = start_logger(output, verbose=verbose)
 
         self.logger.critical('Running with {0} parallel threads'.format(self.nthreads))
-        from .sampler import HamiltonianMonteCarloSampler, MetropolisHastingsSampler
+        from .sampler import HamiltonianMonteCarloSampler, MetropolisHastingsSampler, RejectionSampler
         from .NestedSampling import NestedSampler
         from .proposal import DefaultProposalCycle, HamiltonianProposalCycle
         if proposals is None:
@@ -129,10 +129,12 @@ class CPNest(object):
             trainer_count = 1
             self.manager = RunManager(nthreads=self.nthreads-trainer_count, trainer=True)
             self.manager.start()
+            SamplerClass = RejectionSampler
         else:
             trainer_count = 0
             self.manager = RunManager(nthreads=self.nthreads-trainer_count)
             self.manager.start()
+            SamplerClass = MetropolisHastingsSampler
 
         if seed is None: self.seed=1234
         else:
@@ -174,7 +176,7 @@ class CPNest(object):
         for i in range(self.nthreads-nhamiltonian-trainer_count):
             resume_file = os.path.join(output, "sampler_{0:d}.pkl".format(i))
             if not os.path.exists(resume_file) or resume == False:
-                sampler = MetropolisHastingsSampler(self.user,
+                sampler = SamplerClass(self.user,
                                   maxmcmc,
                                   verbose     = verbose,
                                   output      = output,
@@ -187,7 +189,7 @@ class CPNest(object):
                                   trainer_dict = trainer_dict
                                   )
             else:
-                sampler = MetropolisHastingsSampler.resume(resume_file,
+                sampler = SamplerClass.resume(resume_file,
                                                            self.manager,
                                                            self.user)
 
@@ -238,6 +240,7 @@ class CPNest(object):
             self.NS.nested_sampling_loop()
             if self.trainable:
                 self.logger.warning("Waiting for training to end")
+                self.manager.stop_training.value = 1
                 self.trainer_process.join()
             for each in self.process_pool:
                 each.join()
@@ -291,6 +294,7 @@ class CPNest(object):
         import numpy as np
         import os
         from .nest2pos import draw_posterior_many
+        from . import plot
         nested_samples = self.get_nested_samples()
         posterior_samples = draw_posterior_many([nested_samples],[self.nlive],verbose=self.verbose)
         posterior_samples = np.array(posterior_samples)
@@ -316,6 +320,8 @@ class CPNest(object):
         import numpy as np
         plotting_posteriors = np.squeeze(pos.view((pos.dtype[0], len(pos.dtype.names))))
         if corner: plot.plot_corner(plotting_posteriors,labels=pos.dtype.names,filename=os.path.join(self.output,'corner.png'))
+
+        plot.plot_ns(self.NS.output_folder + 'nested_samples.dat', filename=self.NS.output_folder + 'ns.png')
 
     def worker_sampler(self, producer_pipe, logLmin):
         cProfile.runctx('self.sampler.produce_sample(producer_pipe, logLmin)', globals(), locals(), 'prof_sampler.prof')
@@ -350,11 +356,10 @@ class RunManager(SyncManager):
         self.logLmin=None
         self.logLmax = None
         self.nthreads=nthreads
+
         if trainer:
-            self.trainer = True
+            self.trainer = True   # enables trainer fucntions
             self.trainer_consumer_pipe, self.trainer_producer_pipe = mp.Pipe(duplex=True)
-            self.trained = False
-            self.training = False
         else:
             self.trainer = False
 
@@ -363,11 +368,14 @@ class RunManager(SyncManager):
         self.logLmin = mp.Value(c_double,-np.inf)
         self.logLmax = mp.Value(c_double,-np.inf)
         self.checkpoint_flag=mp.Value(c_int,0)
+
         if self.trainer:
             self.trained = mp.Value(c_int,0)
             self.training = mp.Value(c_int,0)
-            self.use_fa = mp.Value(c_int,0)
-            self.use_flow = mp.Value(c_int, 0)
+            self.enable_flow = mp.Value(c_int, 0)
+            self.stop_training = mp.Value(c_int, 0)
+            self.send_weights = mp.Value(c_int, 0)
+            self.weights_file = mp.Array(c_char, range(128))
 
     def connect_producer(self, trainer=False):
         """
