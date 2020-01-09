@@ -36,7 +36,7 @@ class Trainer(CPThread):
             if cmd.ctype == 'train':
                 self.train(cmd.payload)
                 return 0
-            if cmd.ctype == 'init':
+            elif cmd.ctype == 'init':
                 self.initialise()
                 return 0
             elif cmd.ctype == 'exit':
