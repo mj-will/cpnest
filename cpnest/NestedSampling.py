@@ -260,6 +260,7 @@ class NestedSampler(object):
         for k in self.worst:
             self.iteration += 1
             loops           = 0
+            updated = False
             while(True):
                 loops += 1
                 acceptance, sub_acceptance, self.jumps, proposed = self.manager.consumer_pipes[self.queue_counter].recv()
@@ -270,11 +271,36 @@ class NestedSampler(object):
                     self.accepted += 1
                     break
                 else:
-                    # resend it to the producer
-                    self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
-                    self.rejected += 1
+                    if self.trainer:
+                        if loops > 1 and not updated:
+                            self.retrain = True
+                            if self.iteration - self.last_updated > self.nthreads:
+                                # force state update
+                                self.logger.debug("Forcing update")
+                                # wait for training to exit
+                                if not self.manager.training.value:
+                                    self.train()
+                                self.logger.debug("Waiting for training")
+                                self.manager.stop_training.value = 1
+                                while not self.manager.trained.value:
+                                    pass
+                                self.manager.stop_training.value = 0
+                                self.state_update(force=True, force_train=True)
+                                self.last_updated = self.iteration
+                            else:
+                                self.logger.debug("Using previous update {}".format(self.last_update))
+                                self.state_update(force=True, weights_file=self.weights_file)
+                            updated = True
+                            self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
+                            self.rejected += 1
+                        # resend it to the producer
+                        else:
+                            self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
+                            self.rejected += 1
+                    else:
+                        self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
+                        self.rejected += 1
             self.acceptance = float(self.accepted)/float(self.accepted + self.rejected)
-            # TODO: add criteria for FA likelihood to be disabled
             if self.verbose:
                 self.logger.info("{0:d}: n:{1:4d} NS_acc:{2:.3f} S{3:d}_acc:{4:.3f} sub_acc:{5:.3f} H: {6:.2f} logL {7:.5f} --> {8:.5f} dZ: {9:.3f} logZ: {10:.3f} logLmax: {11:.2f}"\
                 .format(self.iteration, self.jumps*loops, self.acceptance, k, acceptance, sub_acceptance, self.state.info,\
@@ -314,10 +340,12 @@ class NestedSampler(object):
             sys.stderr.write("\n")
             sys.stderr.flush()
 
-        if False:
-            self.logger.info("Training on intial live poiints")
-            self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
-            self.manager.training.value = 1
+        if True:
+            if self.trainer:
+                self.logger.info("Training on intial live points")
+                self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
+                self.manager.training.value = 1
+
         self.initialised=True
 
     def initialise_trainers(self):
@@ -343,6 +371,8 @@ class NestedSampler(object):
             self.flow_count = 0
             self.state_update = self._flow_proposal_state_update
             self.state_check = self._flow_proposal_state_check
+            self.weights_file = None
+            self.last_updated = 0
 
     def nested_sampling_loop(self):
         """
@@ -362,6 +392,10 @@ class NestedSampler(object):
                 c.send(CPCommand('exit'))
             self.logger.warning("Nested Sampling process {0!s}, exiting".format(os.getpid()))
             return 0
+
+        if self.trainer:
+            while not self.manager.trained.value:
+                pass
 
         try:
             i=0
@@ -412,10 +446,10 @@ class NestedSampler(object):
 
         # Some diagnostics
         if self.verbose>1 :
-          self.state.plot(os.path.join(self.output_folder,'logXlogL.png'))
+            self.state.plot(os.path.join(self.output_folder,'logXlogL.png'))
         return self.state.logZ, self.nested_samples
 
-    def state_update(self):
+    def state_update(self, force=False):
         """
         Update likelihood and prososal states.
         """
@@ -427,46 +461,67 @@ class NestedSampler(object):
         """
         pass
 
-    def _flow_proposal_state_update(self):
+    def train(self):
+        """
+        Train the normalising flow
+        """
+        #if not len(self.nested_samples) > self.nthreads:
+        #    self.logger.info("No enough samples to train")
+        #    pass
+        if not self.manager.training.value:
+            self.logger.info("Training")
+            payload = self.params
+            N = 1000
+            if len(self.nested_samples):
+                pass
+                #payload += self.nested_samples
+            self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=payload))
+            self.manager.training.value = 1
+        else:
+            self.logger.info("Could not start training")
+
+    def _flow_proposal_state_update(self, force=False, force_train=False, weights_file=None):
         """
         Update state when using flow proposal
         """
         if self.manager.trained.value:
-            self.logger.info('Checking performance for flow')
             self.logger.info("Training complete")
             self.manager.trained.value = 0
             self.manager.training.value = 0
-            weights_file = self.manager.trainer_consumer_pipe.recv()
-            if self.manager.use_flow.value:
+            self.weights_file = self.manager.trainer_consumer_pipe.recv()
+            if self.manager.enable_flow.value or force:
                 self.logger.info("Updating flow")
+                self.last_update = self.iteration
                 for c in self.manager.consumer_pipes:
-                    c.send(CPCommand('set_weights', payload=weights_file))
+                    c.send(CPCommand('set_weights', payload=self.weights_file))
                 if not self.flow_enabled:
                     self.logger.info("Switiching to flow proposal")
                     for c in self.manager.consumer_pipes:
                         c.send(CPCommand('switch_proposal', payload='flow'))
                     self.flow_enabled = True
                     self.flow_count = 0
-                self.manager.use_flow.value = 0
+                self.manager.enable_flow.value = 0
+                self.retain = False
             else:
                 self.logger.info("Flow performance not high enough, retraining")
                 self.retrain = True
-
-        if (len(self.nested_samples) % self.n_training_samples <= self.nthreads) or (self.retrain and len(self.nested_samples) % (self.n_training_samples / 2) <= self.nthreads):
+        elif weights_file is not None:
+            self.logger.info("Updating flow with previous weights")
+            for c in self.manager.consumer_pipes:
+                c.send(CPCommand('set_weights', payload=self.weights_file))
+            if not self.flow_enabled:
+                self.logger.info("Switiching to flow proposal")
+                for c in self.manager.consumer_pipes:
+                    c.send(CPCommand('switch_proposal', payload='flow'))
+                self.flow_enabled = True
+                self.flow_count = 0
             self.retrain = False
-            if not len(self.nested_samples) > self.nthreads:
-                pass
-            elif not self.manager.training.value:
-                self.logger.info("Training")
-                if len(self.training_data):
-                    self.training_data += self.params
-                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.training_data))
-                    self.training_data = list()
-                else:
-                    self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
-                self.manager.training.value = 1
-            else:
-                self.training_data += self.params
+
+        if (len(self.nested_samples) % self.n_training_samples <= self.nthreads) or self.retrain or force_train:
+            if len(self.nested_samples) > self.n_training_samples:
+                if self.retrain:
+                    self.retrain = False
+                self.train()
 
     def _flow_proposal_state_check(self):
         """
@@ -474,14 +529,13 @@ class NestedSampler(object):
         """
         if self.flow_enabled:
             self.flow_count += self.nthreads
+            print(self.flow_count)
             if self.flow_count >= self.n_likelihood_evaluations:
                 self.logger.info("Switching to default proposal cycle")
                 for c in self.manager.consumer_pipes:
                     c.send(CPCommand('switch_proposal', payload='default'))
                 self.flow_enabled = False
                 self.flow_count= 0
-
-
 
     def checkpoint(self):
         """
