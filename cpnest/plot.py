@@ -19,6 +19,81 @@ def plot_chain(x,name=None,filename=None):
         plt.savefig(filename,bbox_inches='tight')
     plt.close()
 
+def plot_sampler_chain(chains, path='./'):
+    import os
+    path = path + 'proposal_{}_'.format(os.getpid())
+    chains = np.array(chains)
+    plot_acceptance(chains, path + 'acceptance.png')
+    hist_acceptance(chains, path + 'hist_acceptance.png')
+    plot_likelihood_evaluations(chains, path + 'likelihood.png')
+    plot_counts(chains, path + 'counts.png')
+
+def plot_acceptance(chains, filename=None):
+    fig = plt.figure(figsize=(10,6))
+    for i, c in enumerate(chains):
+        plt.plot((c[:, 2] / c[:, 1]), '.', label='Chain {}'.format(i))
+    plt.xlabel('Iteration')
+    plt.ylabel('Acceptance ratio')
+    plt.legend()
+    if filename is not None:
+        plt.savefig(filename,bbox_inches='tight')
+    plt.close()
+
+def hist_acceptance(chains, filename=None):
+    fig = plt.figure(figsize=(10,6))
+    for i, c in enumerate(chains):
+        plt.hist((c[:, 2] / c[:, 1]), 50, density=True, alpha=0.5, label='Chain {}'.format(i))
+    plt.xlabel('Acceptance ratio')
+    plt.legend()
+    if filename is not None:
+        plt.savefig(filename,bbox_inches='tight')
+    plt.close()
+
+def plot_likelihood_evaluations(chains, filename=None):
+    fig = plt.figure(figsize=(10,6))
+    for i, c in enumerate(chains):
+        plt.plot(np.cumsum(c[:, 1]), label='Chain {}'.format(i))
+    plt.xlabel('Iteration')
+    plt.ylabel('Count')
+    plt.legend()
+    if filename is not None:
+        plt.savefig(filename,bbox_inches='tight')
+    plt.close()
+
+def plot_counts(chains, filename=None):
+    fig = plt.figure(figsize=(10,6))
+    for i, c in enumerate(chains):
+        plt.plot(c[:, 1], '.', label='Chain {} proposed'.format(i))
+        plt.plot(c[:, 2], '.', label='Chain {} accepted'.format(i))
+    plt.xlabel('Iteration')
+    plt.ylabel('Count')
+    plt.legend()
+    if filename is not None:
+        plt.savefig(filename,bbox_inches='tight')
+    plt.close()
+
+def plot_ns(ns_file, filename=None):
+    ns = np.loadtxt(ns_file)
+    samples = ns[:, :-2]
+    N = len(samples)
+    c = plt.cm.plasma(np.linspace(0, 1, N))
+    d = samples.shape[-1]
+
+    fig,ax = plt.subplots(d, d, figsize=(20,20))
+    for i in range(d):
+        for j in range(d):
+            if j < i:
+                ax[i, j].scatter(samples[:,j], samples[:,i], c=c, marker='.')
+            elif j == i:
+                ax[i, j].hist(samples[:, j], color='tab:purple')
+            else:
+                ax[i, j].set_axis_off()
+    plt.tight_layout()
+    if filename is not None:
+        plt.savefig(filename,bbox_inches='tight')
+    plt.close()
+
+
 def plot_hist(x,name=None,filename=None):
     """
     Produce a histogram
