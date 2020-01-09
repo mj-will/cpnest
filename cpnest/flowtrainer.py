@@ -159,22 +159,24 @@ class FlowTrainer(Trainer):
         # send weights and check whether to enable the flow
         if self.manager is not None:
             if D >= 0.01:
-                self.manager.use_flow.value = 1
+                self.manager.enable_flow.value = 1
             self.manager.trained.value = 1
             self.producer_pipe.send(self.weights_file)
             self.logger.info("Weights sent")
 
 
-    def _train_on_data(self, samples, plot=False):
+    def _train_on_data(self, samples, plot=False, max_epochs=None):
         """
         Train the flow on samples
         """
         if not self.intialised:
             self.logger.info("Initialising")
             self.initialise()
-        else:
-            pass
-            #self._reset_model()
+
+        elif self.training_count % 5 == 0:
+            self.logger.info("Reseting weights")
+            self._reset_model()
+
         if self.normalise:
             self.logger.info("Using normalisation")
             samples = self.normalise_samples(samples)
@@ -188,6 +190,8 @@ class FlowTrainer(Trainer):
             #plot_corner_contour(samples, filename=block_outdir + "input_samples.png")
             pass
 
+        self.logger.debug("N input samples: {}".format(len(samples)))
+
         # setup data loading
         x_train, x_val = train_test_split(samples, test_size=self.val_size)
         train_tensor = torch.from_numpy(x_train.astype(np.float32))
@@ -199,15 +203,21 @@ class FlowTrainer(Trainer):
         val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=x_val.shape[0], shuffle=False)
 
         # train
+        if max_epochs is None:
+            max_epochs = self.max_epochs
         best_epoch = 0
         best_val_loss = np.inf
         best_model = copy.deepcopy(self.model)
         self.logger.info("Starting training")
         self.logger.info("Training parameters:")
-        self.logger.info(f"Max. epochs: {self.max_epochs}")
+        self.logger.info(f"Max. epochs: {max_epochs}")
         self.logger.info(f"Patience: {self.patience}")
         history = dict(loss=[], val_loss=[])
-        for epoch in range(1, self.max_epochs + 1):
+
+        self.weights_file = block_outdir + 'model.pt'
+
+
+        for epoch in range(1, max_epochs + 1):
 
             loss = self._train(train_loader)
             val_loss = self._validate(val_loader)
@@ -226,12 +236,17 @@ class FlowTrainer(Trainer):
                 self.logger.info(f"Epoch {epoch}: Reached patience")
                 break
 
+            if self.manager.stop_training.value:
+                if epoch >= self.patience:
+                    break
+
         self.training_count += 1
         self.model.load_state_dict(best_model.state_dict())
         self.weights_file = block_outdir + 'model.pt'
         torch.save(self.model.state_dict(), self.weights_file)
         # sample for plots
-        output = self.sample(N=len(samples))
+        z, output = self.sample(N=len(samples))
+        np.save(block_outdir + 'samples.npy', [z, output])
         if plot:
             self.logger.info("Plotting output")
             fig = plt.figure()
@@ -311,7 +326,7 @@ class FlowTrainer(Trainer):
 
         z = z.detach().cpu().numpy()
         output = output.detach().cpu().numpy()
-        return output
+        return z, output
 
     def load_weights(self, weights_file):
         """Load weights for the model"""
