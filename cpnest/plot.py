@@ -28,7 +28,12 @@ def plot_sampler_chain(chains, path='./'):
     plot_likelihood_evaluations(chains, path + 'likelihood.png')
     plot_counts(chains, path + 'counts.png')
 
-def plot_acceptance(chains, filename=None):
+def plot_acceptance(path, filename=None):
+    import glob
+    files = glob.glob(path + 'proposal*.dat')
+    chains = []
+    for f in files:
+        chains.append(np.loadtxt(f))
     fig = plt.figure(figsize=(10,6))
     for i, c in enumerate(chains):
         plt.plot((c[:, 2] / c[:, 1]), '.', label='Chain {}'.format(i))
@@ -37,6 +42,20 @@ def plot_acceptance(chains, filename=None):
     plt.legend()
     if filename is not None:
         plt.savefig(filename,bbox_inches='tight')
+    else:
+        plt.savefig(path + 'acceptance.png' ,bbox_inches='tight')
+    plt.close()
+    fig = plt.figure(figsize=(10,6))
+    for i, c in enumerate(chains):
+        plt.plot(c[:, 1], '.', label='Chain {} proposed'.format(i))
+        plt.plot(c[:, 2], '.', label='Chain {} accepted'.format(i))
+    plt.xlabel('Iteration')
+    plt.ylabel('Count')
+    plt.legend()
+    if filename is not None:
+        plt.savefig(filename,bbox_inches='tight')
+    else:
+        plt.savefig(path + 'counts.png' ,bbox_inches='tight')
     plt.close()
 
 def hist_acceptance(chains, filename=None):

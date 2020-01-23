@@ -16,7 +16,7 @@ from scipy import stats as stats
 import matplotlib.pyplot as plt
 
 from .trainer import Trainer
-from .flows import CouplingLayer, BatchNormFlow, FlowSequential
+from .flows import CouplingLayer, BatchNormFlow, FlowSequential, MADE
 from .plot import plot_corner_contour
 
 
@@ -50,6 +50,7 @@ class FlowModel(nn.Module):
         layers = []
         for _ in range(n_blocks):
             layers += [CouplingLayer(n_inputs, n_neurons, mask, num_layers=n_layers), BatchNormFlow(n_inputs)]
+            #layers += [MADE(n_inputs, n_neurons)]
             mask = 1 - mask
 
         self.net = FlowSequential(*layers)
@@ -152,7 +153,7 @@ class FlowTrainer(Trainer):
         samples = np.array([p.values for p in payload])
         self.logger.info("Starting training setup")
 
-        D, p_value = self._train_on_data(samples)
+        D, p_value = self._train_on_data(samples, plot=True)
 
         self.logger.info("Training complete")
 
@@ -165,13 +166,15 @@ class FlowTrainer(Trainer):
             self.logger.info("Weights sent")
 
 
-    def _train_on_data(self, samples, plot=False, max_epochs=None):
+    def _train_on_data(self, samples, plot=False, max_epochs=None, patience=None):
         """
         Train the flow on samples
         """
         if not self.intialised:
             self.logger.info("Initialising")
             self.initialise()
+            #max_epochs = 5000
+            #patience = 500
 
         elif self.training_count % 5 == 0:
             self.logger.info("Reseting weights")
@@ -186,9 +189,12 @@ class FlowTrainer(Trainer):
         if not os.path.isdir(block_outdir):
             os.mkdir(block_outdir)
         if plot:
-            #print("Flow trainer: plotting input")
+            print("Flow trainer: plotting input")
             #plot_corner_contour(samples, filename=block_outdir + "input_samples.png")
-            pass
+            fig = plt.figure()
+            plt.plot(samples[:,0], samples[:, 1], '.')
+            fig.savefig(block_outdir + 'input_samples.png')
+            plt.close(fig)
 
         self.logger.debug("N input samples: {}".format(len(samples)))
 
@@ -205,13 +211,15 @@ class FlowTrainer(Trainer):
         # train
         if max_epochs is None:
             max_epochs = self.max_epochs
+        if patience is None:
+            patience = self.patience
         best_epoch = 0
         best_val_loss = np.inf
         best_model = copy.deepcopy(self.model)
         self.logger.info("Starting training")
         self.logger.info("Training parameters:")
         self.logger.info(f"Max. epochs: {max_epochs}")
-        self.logger.info(f"Patience: {self.patience}")
+        self.logger.info(f"Patience: {patience}")
         history = dict(loss=[], val_loss=[])
 
         self.weights_file = block_outdir + 'model.pt'
@@ -232,13 +240,13 @@ class FlowTrainer(Trainer):
             if not epoch % 50:
                 self.logger.info(f"Epoch {epoch}: loss: {loss:.3}, val loss: {val_loss:.3}")
 
-            if epoch - best_epoch > self.patience:
+            if epoch - best_epoch > patience:
                 self.logger.info(f"Epoch {epoch}: Reached patience")
                 break
-
-            if self.manager.stop_training.value:
-                if epoch >= self.patience:
-                    break
+            if self.manager is not None:
+                if self.manager.stop_training.value:
+                    if epoch >= patience:
+                        break
 
         self.training_count += 1
         self.model.load_state_dict(best_model.state_dict())
@@ -254,10 +262,19 @@ class FlowTrainer(Trainer):
             plt.plot(epochs, history['loss'], label='Loss')
             plt.plot(epochs, history['val_loss'], label='Val. loss')
             plt.xlabel('Epochs')
-            plt.ylabel('Loss')
+            plt.ylabel('Negative log-likelihood')
             plt.legend()
             fig.savefig(block_outdir + 'loss.png')
-            plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
+            plt.yscale('log')
+            fig.savefig(block_outdir + 'loss_log.png')
+            plt.close(fig)
+            fig, axs = plt.subplots(1, 2, figsize=(10,5))
+            axs = axs.ravel()
+            axs[0].plot(z[:, 0], z[:, 1], '.')
+            axs[1].plot(samples[:, 0], samples[:, 1], '.')
+            fig.savefig(block_outdir + 'output_samples.png')
+            plt.close(fig)
+            #plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
 
         # compute mean KS
         D, p_value = self.compute_mean_ks(samples, output)
