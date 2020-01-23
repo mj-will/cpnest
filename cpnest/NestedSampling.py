@@ -461,22 +461,24 @@ class NestedSampler(object):
         """
         pass
 
-    def train(self):
+    def train(self, wait=True):
         """
         Train the normalising flow
         """
-        #if not len(self.nested_samples) > self.nthreads:
-        #    self.logger.info("No enough samples to train")
-        #    pass
         if not self.manager.training.value:
             self.logger.info("Training")
-            payload = self.params
-            N = 1000
+            payload = self.params.copy()
+            N = 500
             if len(self.nested_samples):
-                pass
-                #payload += self.nested_samples
+                if len(self.nested_samples) >= N:
+                    pass
+                    #payload += self.nested_samples[-N:].copy()
             self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=payload))
             self.manager.training.value = 1
+            if wait:
+                self.logger.debug("Waiting for training to finish")
+                while not self.manager.trained.value:
+                    pass
         else:
             self.logger.info("Could not start training")
 
@@ -517,8 +519,8 @@ class NestedSampler(object):
                 self.flow_count = 0
             self.retrain = False
 
-        if (len(self.nested_samples) % self.n_training_samples <= self.nthreads) or self.retrain or force_train:
-            if len(self.nested_samples) > self.n_training_samples:
+        if (len(self.nested_samples) % self.n_training_samples < self.nthreads) or self.retrain or force_train:
+            if len(self.nested_samples) >= self.n_training_samples:
                 if self.retrain:
                     self.retrain = False
                 self.train()
