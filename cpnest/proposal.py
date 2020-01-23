@@ -275,6 +275,8 @@ class FlowProposal(EnsembleProposal):
         self.names = names                     # Names of samples for LivePoint
         self.fuzz = fuzz
 
+        self.prior = self.gaussian_prior
+
         self.log_prior = log_prior
         if prior_range is not None:
             self.setup_normalisation(prior_range)
@@ -320,8 +322,8 @@ class FlowProposal(EnsembleProposal):
 
     def forward_pass(self, theta):
         """Pass a vector of points through the model"""
-        z_tensor = self.torch.Tensor(theta.astype(np.float32)).to(self.model.device)
-        z, log_J = self.model(z_tensor)
+        theta_tensor = self.torch.Tensor(theta.astype(np.float32)).to(self.model.device)
+        z, log_J = self.model(theta_tensor)
         z = z.detach().cpu().numpy()
         log_J = log_J.detach().cpu().numpy()
         return z, np.squeeze(log_J)
@@ -364,18 +366,31 @@ class FlowProposal(EnsembleProposal):
         z = R ** (1 / self.ndims) * x.T
         return fuzz * r * z.T
 
-    def draw(self, r2, N=1000, fuzz=1.0):
+    def draw_uniform(self, r2, N=1000, fuzz=1.0):
         """Draw N samples from a region within the worst point"""
         z = self.random_nsphere(r=np.sqrt(r2), N=N, fuzz=fuzz)
         return z
 
-    def draw_trunc(self, r2, N=1000):
+    def draw_trunc(self, r2, N=1000, fuzz=1.0):
         """Draw N samples from a region within the worst point"""
         r = np.sqrt(r2)
         samples = np.concatenate([[truncnorm.rvs(-r, r, size=N)] for _ in range(self.ndims)], axis=0).T
         # remove points outside bounds
         samples = samples[np.where(np.sum(samples**2., axis=-1) < r2 )]
         return samples
+
+
+    def uniform_prior(self, z):
+        """
+        Uniform prior for use with points drawn uniformly with an n-shpere
+        """
+        return 0.0
+
+    def gaussian_prior(self, z):
+        """
+        Gaussian prior
+        """
+        return np.sum(-0.5 * (z ** 2.) - 0.5 * log(2. * pi), axis=-1)
 
     def log_proposal_prob(self, z, log_J):
         """
@@ -384,7 +399,7 @@ class FlowProposal(EnsembleProposal):
 
         q(theta)  = q(z)|dz/dtheta|
         """
-        log_q_z = np.sum(-0.5 * z ** 2. - 0.5 * log(2 * pi), axis=-1)
+        log_q_z = self.prior(z)
         return log_q_z + log_J
 
     def compute_weights(self, theta, z, log_J):
@@ -398,12 +413,14 @@ class FlowProposal(EnsembleProposal):
 
 class RandomFlowProposal(FlowProposal):
 
+
     def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, pool_size=10000, fuzz=1.0, output=None):
 
         super(RandomFlowProposal, self).__init__(model_dict, names, log_prior, device, prior_range, pool_size, fuzz)
         self.output = os.path.join(output, '')
         os.makedirs(self.output, exist_ok=True)
         self.count = 0
+        self.draw = self.draw_trunc
 
     def save_samples(self, z, samples, accepted):
         """Save the samples generated"""
@@ -413,6 +430,7 @@ class RandomFlowProposal(FlowProposal):
         flag = np.array([flag, flag])
         np.save(self.output + 'samples_{}.npy'.format(self.count), [z, samples, flag])
         self.count += 1
+
 
     def populate(self, old_r2, N=10000):
         """Populate a pool of latent points"""
@@ -425,24 +443,28 @@ class RandomFlowProposal(FlowProposal):
         z = self.draw(old_r2, N, fuzz=fuzz)
         self.r2 = self.radius2(z)
         samples, log_J = self.backward_pass(z)
+
         # rescale given priors used intially, need for priors
         samples = self.rescale_output(samples)
         samples = [self.make_live_point(p) for p in samples]
-        alpha = self.compute_weights(samples, z, log_J)
-        alpha = alpha - alpha.max()
+        alpha = self.compute_weights(samples, z, -log_J)
+
         # rejection sampling
         u = np.log(np.random.rand(len(samples)))
-        indices = np.where((u - alpha) < 0)[0]
-        self.save_samples(z, samples, indices)
-        # array of indices to take random draws from
-        self.indices = np.random.permutation(len(indices))
-        self.samples = [samples[i] for i in indices]
-        self.populated = True
-        self.logger.debug('Proposal populated: {} points'.format(len(self.samples)))
+        indices = np.where((alpha - u) >= 0)[0]
+        if len(indices):
+            self.save_samples(z, samples, indices)
+            # array of indices to take random draws from
+            self.indices = np.random.permutation(len(indices))
+            self.samples = [samples[i] for i in indices]
+            self.z = z[indices]
+            self.populated = True
+        self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), len(alpha)))
 
     def get_sample(self, old_sample):
         """Get a new sample within the contour defined by the old sample"""
-        if not self.populated:
+        count = 0
+        while not self.populated:
             # Populate if unpopulated
             # This requires pass through the flows
             old_sample = self.unpack_live_point(old_sample) # unpack LivePoint
@@ -451,7 +473,26 @@ class RandomFlowProposal(FlowProposal):
             old_r2 = self.radius2(old_z)                    # contour
             self.populate(old_r2, N=self.pool_size)         # points within contour
 
-        # get samples with index given by first entry in possible indices
+            # get samples with index given by first entry in possible indices
+            samples = np.array([s.values for s in self.samples])
+            fig, axs = plt.subplots(1, 2, figsize=(10,5))
+            axs = axs.ravel()
+            old_sample = self.rescale_output(old_sample)
+            assert len(self.z) == len(samples)
+            axs[0].plot(self.z[:, 0][self.indices], self.z[:,1][self.indices], '.')
+            axs[0].plot(old_z[0], old_z[1], 'o')
+            axs[1].plot(samples[:, 0], samples[:, 1], '.')
+            axs[1].plot(old_sample[0], old_sample[1], 'o', label='Worst point: {}'.format(old_sample))
+            plt.legend()
+            fig.savefig(self.output + 'samples_{}.png'.format(self.count-1))
+            plt.close(fig)
+            count += 1
+            if count == 20:
+                break
+            # TODO: fix this
+
+
+
         new_sample = self.samples[self.indices[0]]
         self.indices = self.indices[1:]
         if not self.indices.size:
