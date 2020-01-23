@@ -13,6 +13,157 @@ import scipy as sp
 import torch
 import torch.nn as nn
 
+def get_mask(in_features, out_features, in_flow_features, mask_type=None):
+    """
+    mask_type: input | None | output
+
+    See Figure 1 for a better illustration:
+    https://arxiv.org/pdf/1502.03509.pdf
+    """
+    if mask_type == 'input':
+        in_degrees = torch.arange(in_features) % in_flow_features
+    else:
+        in_degrees = torch.arange(in_features) % (in_flow_features - 1)
+
+    if mask_type == 'output':
+        out_degrees = torch.arange(out_features) % in_flow_features - 1
+    else:
+        out_degrees = torch.arange(out_features) % (in_flow_features - 1)
+
+    return (out_degrees.unsqueeze(-1) >= in_degrees.unsqueeze(0)).float()
+
+class MADE(nn.Module):
+    """ An implementation of MADE
+    (https://arxiv.org/abs/1502.03509).
+    """
+
+    def __init__(self,
+                 num_inputs,
+                 num_hidden,
+                 num_cond_inputs=None,
+                 act='relu',
+                 pre_exp_tanh=False):
+        super(MADE, self).__init__()
+
+        activations = {'relu': nn.ReLU, 'sigmoid': nn.Sigmoid, 'tanh': nn.Tanh}
+        act_func = activations[act]
+
+        input_mask = get_mask(
+            num_inputs, num_hidden, num_inputs, mask_type='input')
+        hidden_mask = get_mask(num_hidden, num_hidden, num_inputs)
+        output_mask = get_mask(
+            num_hidden, num_inputs * 2, num_inputs, mask_type='output')
+
+        self.joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask,
+                                      num_cond_inputs)
+
+        self.trunk = nn.Sequential(act_func(),
+                                   nn.MaskedLinear(num_hidden, num_hidden,
+                                                   hidden_mask), act_func(),
+                                   nn.MaskedLinear(num_hidden, num_inputs * 2,
+                                                   output_mask))
+
+    def forward(self, inputs, cond_inputs=None, mode='direct'):
+        if mode == 'direct':
+            h = self.joiner(inputs, cond_inputs)
+            m, a = self.trunk(h).chunk(2, 1)
+            u = (inputs - m) * torch.exp(-a)
+            return u, -a.sum(-1, keepdim=True)
+
+        else:
+            x = torch.zeros_like(inputs)
+            for i_col in range(inputs.shape[1]):
+                h = self.joiner(x, cond_inputs)
+                m, a = self.trunk(h).chunk(2, 1)
+                x[:, i_col] = inputs[:, i_col] * torch.exp(
+                    a[:, i_col]) + m[:, i_col]
+            return x, -a.sum(-1, keepdim=True)
+
+
+class Sigmoid(nn.Module):
+    def __init__(self):
+        super(Sigmoid, self).__init__()
+
+    def forward(self, inputs, cond_inputs=None, mode='direct'):
+        if mode == 'direct':
+            s = torch.sigmoid
+            return s(inputs), torch.log(s(inputs) * (1 - s(inputs))).sum(
+                -1, keepdim=True)
+        else:
+            return torch.log(inputs /
+                             (1 - inputs)), -torch.log(inputs - inputs**2).sum(
+                                 -1, keepdim=True)
+
+
+class Logit(Sigmoid):
+    def __init__(self):
+        super(Logit, self).__init__()
+
+    def forward(self, inputs, cond_inputs=None, mode='direct'):
+        if mode == 'direct':
+            return super(Logit, self).forward(inputs, 'inverse')
+        else:
+            return super(Logit, self).forward(inputs, 'direct')
+
+
+class BatchNormFlow(nn.Module):
+    """ An implementation of a batch normalization layer from
+    Density estimation using Real NVP
+    (https://arxiv.org/abs/1605.08803).
+    """
+
+    def __init__(self, num_inputs, momentum=0.0, eps=1e-5):
+        super(BatchNormFlow, self).__init__()
+
+        self.log_gamma = nn.Parameter(torch.zeros(num_inputs))
+        self.beta = nn.Parameter(torch.zeros(num_inputs))
+        self.momentum = momentum
+        self.eps = eps
+
+        self.register_buffer('running_mean', torch.zeros(num_inputs))
+        self.register_buffer('running_var', torch.ones(num_inputs))
+
+    def forward(self, inputs, cond_inputs=None, mode='direct'):
+        if mode == 'direct':
+            if self.training:
+                self.batch_mean = inputs.mean(0)
+                self.batch_var = (
+                    inputs - self.batch_mean).pow(2).mean(0) + self.eps
+
+                self.running_mean.mul_(self.momentum)
+                self.running_var.mul_(self.momentum)
+
+                self.running_mean.add_(self.batch_mean.data *
+                                       (1 - self.momentum))
+                self.running_var.add_(self.batch_var.data *
+                                      (1 - self.momentum))
+
+                mean = self.batch_mean
+                var = self.batch_var
+            else:
+                mean = self.running_mean
+                var = self.running_var
+
+            x_hat = (inputs - mean) / var.sqrt()
+            y = torch.exp(self.log_gamma) * x_hat + self.beta
+            return y, (self.log_gamma - 0.5 * torch.log(var)).sum(
+                -1, keepdim=True)
+        else:
+            if self.training:
+                mean = self.batch_mean
+                var = self.batch_var
+            else:
+                mean = self.running_mean
+                var = self.running_var
+
+            x_hat = (inputs - self.beta) / torch.exp(self.log_gamma)
+
+            y = x_hat * var.sqrt() + mean
+
+            return y, (-self.log_gamma + 0.5 * torch.log(var)).sum(
+                -1, keepdim=True)
+
+
 class Sigmoid(nn.Module):
     def __init__(self):
         super(Sigmoid, self).__init__()
