@@ -247,7 +247,7 @@ class Sampler(CPThread):
             sys.exit(130)
 
         self.evolution_points.append(p)
-        (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value))
+        (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value), p)
         # Send the sample to the Nested Sampler
         self.producer_pipe.send((self.acceptance,self.sub_acceptance,Nmcmc,outParam))
         # Update the ensemble every now and again
@@ -352,7 +352,7 @@ class MetropolisHastingsSampler(Sampler):
     metropolis-hastings acceptance rule
     for :obj:`cpnest.proposal.EnembleProposal`
     """
-    def yield_sample_mcmc(self, logLmin):
+    def yield_sample_mcmc(self, logLmin, p=None):
 
         while True:
 
@@ -454,9 +454,8 @@ class RejectionSampler(MetropolisHastingsSampler):
         if p == "checkpoint":
             self.checkpoint()
             sys.exit(130)
-
         self.evolution_points.append(p)
-        (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value))
+        (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value, p))
         # Send the sample to the Nested Sampler
         self.producer_pipe.send((self.acceptance,self.sub_acceptance,Nmcmc,outParam))
         # Update the ensemble every now and again
@@ -466,13 +465,13 @@ class RejectionSampler(MetropolisHastingsSampler):
         self.counter += 1
         return 0
 
-    def yield_sample_rejection(self, logLmin):
+    def yield_sample_rejection(self, logLmin, oldparam):
 
         while True:
 
             sub_counter = 0
             sub_accepted = 0
-            oldparam = self.evolution_points.popleft()
+            #oldparam = self.evolution_points.popleft()
             logp_old = self.model.log_prior(oldparam)
             while True:
 
@@ -480,7 +479,7 @@ class RejectionSampler(MetropolisHastingsSampler):
                 newparam = self.proposal.get_sample(oldparam.copy())
                 newparam.logP = self.model.log_prior(newparam)
 
-                if newparam.logP-logp_old + self.proposal.log_J > log(random()):
+                if newparam.logP != -np.inf:
                     newparam.logL = self.model.log_likelihood(newparam)
                     if newparam.logL > logLmin:
                         self.logLmax.value = max(self.logLmax.value, newparam.logL)
