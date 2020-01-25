@@ -183,12 +183,19 @@ class NestedSampler(object):
         header.write('\t'.join(self.model.names))
         header.write('\tlogL\n')
         header.close()
+
         self.trainer = trainer
         self.trainer_type = trainer_type
         if trainer:
-            self.n_training_samples = trainer_dict['n_training_samples']
-            self.n_likelihood_evaluations = trainer_dict['n_likelihood_evaluations']
+            if 'n_training_samples' in trainer_dict:
+                self.training_frequency = trainer_dict['n_training_samples']
+            elif 'training_frequency' in trainer_dict:
+                self.training_frequency = trainer_dict['training_frequency']
+            else:
+                self.training_frequency = self.Nlive
+            self.n_likelihood_evaluations = None
             self.logger.info("Training enabled in nested sampling")
+
         self.initialised    = False
 
     def setup_output(self,output):
@@ -343,7 +350,8 @@ class NestedSampler(object):
         if True:
             if self.trainer:
                 self.logger.info("Training on intial live points")
-                self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=self.params))
+                payload = (0, self.params.copy())
+                self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=payload))
                 self.manager.training.value = 1
 
         self.initialised=True
@@ -405,7 +413,7 @@ class NestedSampler(object):
 
                 self.consume_sample()
 
-                self.check_state()
+                self.state_check()
 
                 if self.n_periodic_checkpoint is not None and i % self.n_periodic_checkpoint == 1:
                     self.checkpoint()
@@ -455,7 +463,7 @@ class NestedSampler(object):
         """
         pass
 
-    def check_state(self):
+    def state_check(self):
         """
         Check if state should be reset to default
         """
@@ -467,12 +475,13 @@ class NestedSampler(object):
         """
         if not self.manager.training.value:
             self.logger.info("Training")
-            payload = self.params.copy()
+            params = self.params.copy()
             N = 500
             if len(self.nested_samples):
                 if len(self.nested_samples) >= N:
                     pass
-                    #payload += self.nested_samples[-N:].copy()
+                    #params += self.nested_samples[-N:].copy()
+            payload = (self.iteration, params)
             self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=payload))
             self.manager.training.value = 1
             if wait:
@@ -519,8 +528,8 @@ class NestedSampler(object):
                 self.flow_count = 0
             self.retrain = False
 
-        if (len(self.nested_samples) % self.n_training_samples < self.nthreads) or self.retrain or force_train:
-            if len(self.nested_samples) >= self.n_training_samples:
+        if (len(self.nested_samples) % self.training_frequency < self.nthreads) or self.retrain or force_train:
+            if len(self.nested_samples) >= self.training_frequency:
                 if self.retrain:
                     self.retrain = False
                 self.train()
@@ -529,15 +538,15 @@ class NestedSampler(object):
         """
         Check if state should be reset to default
         """
-        if self.flow_enabled:
-            self.flow_count += self.nthreads
-            print(self.flow_count)
-            if self.flow_count >= self.n_likelihood_evaluations:
-                self.logger.info("Switching to default proposal cycle")
-                for c in self.manager.consumer_pipes:
-                    c.send(CPCommand('switch_proposal', payload='default'))
-                self.flow_enabled = False
-                self.flow_count= 0
+        if self.n_likelihood_evaluations is not None:
+            if self.flow_enabled:
+                self.flow_count += self.nthreads
+                if self.flow_count >= self.n_likelihood_evaluations:
+                    self.logger.info("Switching to default proposal cycle")
+                    for c in self.manager.consumer_pipes:
+                        c.send(CPCommand('switch_proposal', payload='default'))
+                    self.flow_enabled = False
+                    self.flow_count= 0
 
     def checkpoint(self):
         """
