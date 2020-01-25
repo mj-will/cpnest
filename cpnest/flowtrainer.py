@@ -150,33 +150,35 @@ class FlowTrainer(Trainer):
         """
         Training the flow given a payload of CPnest LivePoints
         """
-        samples = np.array([p.values for p in payload])
+        iteration = payload[0]
+        samples = np.array([p.values for p in payload[1]])
         self.logger.info("Starting training setup")
 
-        D, p_value = self._train_on_data(samples, plot=True)
+        D, p_value = self._train_on_data(samples, plot=True, iteration=iteration)
 
         self.logger.info("Training complete")
 
         # send weights and check whether to enable the flow
         if self.manager is not None:
-            if D >= 0.01:
+            if D >= 0.:      # 0 since flow is always used
                 self.manager.enable_flow.value = 1
             self.manager.trained.value = 1
             self.producer_pipe.send(self.weights_file)
             self.logger.info("Weights sent")
 
 
-    def _train_on_data(self, samples, plot=False, max_epochs=None, patience=None):
+    def _train_on_data(self, samples, plot=False, max_epochs=None, patience=None, iteration=None):
         """
         Train the flow on samples
         """
         if not self.intialised:
             self.logger.info("Initialising")
             self.initialise()
+            # Option to force first training to be longer
             #max_epochs = 5000
             #patience = 500
 
-        elif self.training_count % 5 == 0:
+        elif self.training_count % 1 == 0:
             self.logger.info("Reseting weights")
             self._reset_model()
 
@@ -189,10 +191,10 @@ class FlowTrainer(Trainer):
         if not os.path.isdir(block_outdir):
             os.mkdir(block_outdir)
         if plot:
-            print("Flow trainer: plotting input")
+            self.logger.debug("Flow trainer: plotting input")
             #plot_corner_contour(samples, filename=block_outdir + "input_samples.png")
             fig = plt.figure()
-            plt.plot(samples[:,0], samples[:, 1], '.')
+            plt.plot(samples[:,0], samples[:, 1], ',')
             fig.savefig(block_outdir + 'input_samples.png')
             plt.close(fig)
 
@@ -224,6 +226,11 @@ class FlowTrainer(Trainer):
 
         self.weights_file = block_outdir + 'model.pt'
 
+        if iteration is not None:
+            P_theta = 1. / 400.
+            N_live = 5000
+            prior_kl = (iteration / N_live) + np.log(P_theta)
+            self.logger.debug(f"Prior portion of KL: {prior_kl}")
 
         for epoch in range(1, max_epochs + 1):
 
@@ -252,6 +259,8 @@ class FlowTrainer(Trainer):
         self.model.load_state_dict(best_model.state_dict())
         self.weights_file = block_outdir + 'model.pt'
         torch.save(self.model.state_dict(), self.weights_file)
+
+        self.model.eval()
         # sample for plots
         z, output = self.sample(N=len(samples))
         np.save(block_outdir + 'samples.npy', [z, output])
@@ -270,13 +279,15 @@ class FlowTrainer(Trainer):
             plt.close(fig)
             fig, axs = plt.subplots(1, 2, figsize=(10,5))
             axs = axs.ravel()
-            axs[0].plot(z[:, 0], z[:, 1], '.')
-            axs[1].plot(samples[:, 0], samples[:, 1], '.')
+            axs[0].plot(z[:, 0], z[:, 1], ',')
+            axs[1].plot(output[:, 0], output[:, 1], ',')
             fig.savefig(block_outdir + 'output_samples.png')
             plt.close(fig)
+            # TODO: fix plotting for N dimensions
             #plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
 
         # compute mean KS
+        # TDOD: remove this?
         D, p_value = self.compute_mean_ks(samples, output)
         self.logger.info(f"Computed KS - D: {D}, p: {p_value}")
         return D, p_value
