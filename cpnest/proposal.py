@@ -265,6 +265,7 @@ class FlowProposal(EnsembleProposal):
         from .flowtrainer import FlowModel
         self.logger = logging.getLogger("CPNest")
         self.model = FlowModel(**model_dict, device=device)                     # Flow model
+        self.update_count = 0                  # times flows have been updated
         self.ndims = model_dict["n_inputs"]
         self.mu = np.zeros(self.ndims)
         self.sigma = np.identity(self.ndims)
@@ -341,6 +342,7 @@ class FlowProposal(EnsembleProposal):
         self.model.load_state_dict(self.torch.load(weights_file))
         self.model.eval()
         self.populated = False
+        self.update_count += 1
 
     def radius2(self, z):
         """Calculate the radius of a latent_point"""
@@ -408,11 +410,12 @@ class FlowProposal(EnsembleProposal):
         """
         log_q = self.log_proposal_prob(z, log_J)
         log_p = np.array([self.log_prior(t) for t in theta])
-        return log_p - log_q
+        log_w = log_p - log_q
+        log_w -= np.max(log_w)
+        return log_w
 
 
 class RandomFlowProposal(FlowProposal):
-
 
     def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, pool_size=10000, fuzz=1.0, output=None):
 
@@ -431,68 +434,77 @@ class RandomFlowProposal(FlowProposal):
         np.save(self.output + 'samples_{}.npy'.format(self.count), [z, samples, flag])
         self.count += 1
 
-
     def populate(self, old_r2, N=10000):
         """Populate a pool of latent points"""
         self.logger.debug("Populating proposal")
         # draw n samples and sort by radius
-        if not self.count:
-            fuzz = self.fuzz
-        else:
-            fuzz = self.fuzz
-        z = self.draw(old_r2, N, fuzz=fuzz)
-        self.r2 = self.radius2(z)
-        samples, log_J = self.backward_pass(z)
+        # only proceed if the draw has produced points
+        # mainly an issue with drawing from the gaussian
+        self.samples = []
+        self.z = np.empty([0, self.ndims])
+        while len(self.samples) < N:
+            while True:
+                z = self.draw(old_r2, N, fuzz=self.fuzz)
+                if z.size:
+                    break
 
-        # rescale given priors used intially, need for priors
-        samples = self.rescale_output(samples)
-        samples = [self.make_live_point(p) for p in samples]
-        alpha = self.compute_weights(samples, z, -log_J)
+            self.r2 = self.radius2(z)
+            samples, log_J = self.backward_pass(z)
 
-        # rejection sampling
-        u = np.log(np.random.rand(len(samples)))
-        indices = np.where((alpha - u) >= 0)[0]
-        if len(indices):
-            self.save_samples(z, samples, indices)
-            # array of indices to take random draws from
-            self.indices = np.random.permutation(len(indices))
-            self.samples = [samples[i] for i in indices]
-            self.z = z[indices]
-            self.populated = True
-        self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), len(alpha)))
+            # rescale given priors used intially, need for priors
+            samples = self.rescale_output(samples)
+            samples = [self.make_live_point(p) for p in samples]
+            alpha = self.compute_weights(samples, z, -log_J)
+
+            # rejection sampling
+            u = np.log(np.random.rand(len(samples)))
+            indices = np.where((alpha - u) >= 0)[0]
+            if len(indices):
+                # array of indices to take random draws from
+                self.samples += [samples[i] for i in indices]
+                self.z = np.concatenate([self.z, z[indices]], axis=0)
+
+        self.samples = self.samples[:N]
+        self.z = self.z[:N]
+        self.indices = np.random.permutation(len(self.samples))
+        self.populated = True
+        self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), N))
 
     def get_sample(self, old_sample):
         """Get a new sample within the contour defined by the old sample"""
         count = 0
-        while not self.populated:
-            # Populate if unpopulated
-            # This requires pass through the flows
-            old_sample = self.unpack_live_point(old_sample) # unpack LivePoint
-            old_sample = self.rescale_input(old_sample)     # rescale (-1, 1)
-            old_z, _ = self.forward_pass(old_sample)        # to latent space
-            old_r2 = self.radius2(old_z)                    # contour
-            self.populate(old_r2, N=self.pool_size)         # points within contour
+        if not self.populated:
+            while not self.populated:
+                # Populate if unpopulated
+                # This requires pass through the flows
+                old_sample_np = self.unpack_live_point(old_sample) # unpack LivePoint
+                old_sample_np = self.rescale_input(old_sample_np)  # rescale (-1, 1)
+                old_z, _ = self.forward_pass(old_sample_np)        # to latent space
+                old_r2 = self.radius2(old_z)                    # contour
+                self.populate(old_r2, N=self.pool_size)         # points within contour
 
-            # get samples with index given by first entry in possible indices
+                # get samples with index given by first entry in possible indices
+                count += 1
+                if count == 20:
+                    self.logger.error('Could not populate proposal')
+                    break
+
+            self.save_samples(self.z, self.samples, self.indices)
             samples = np.array([s.values for s in self.samples])
             fig, axs = plt.subplots(1, 2, figsize=(10,5))
             axs = axs.ravel()
-            old_sample = self.rescale_output(old_sample)
+            old_sample_np = self.rescale_output(old_sample_np)
             assert len(self.z) == len(samples)
-            axs[0].plot(self.z[:, 0][self.indices], self.z[:,1][self.indices], '.')
+            axs[0].plot(self.z[:, 0][self.indices], self.z[:,1][self.indices], ',')
             axs[0].plot(old_z[0], old_z[1], 'o')
-            axs[1].plot(samples[:, 0], samples[:, 1], '.')
-            axs[1].plot(old_sample[0], old_sample[1], 'o', label='Worst point: {}'.format(old_sample))
+            axs[1].plot(samples[:, 0], samples[:, 1], ',')
+            axs[1].plot(old_sample_np[0], old_sample_np[1], 'o', label='Worst point: {}'.format(old_sample_np))
             plt.legend()
+            plt.title(f'Proposal samples {self.count-1} using block {self.update_count}')
             fig.savefig(self.output + 'samples_{}.png'.format(self.count-1))
             plt.close(fig)
-            count += 1
-            if count == 20:
-                break
-            # TODO: fix this
 
-
-
+        # new sample is drawn randomly from proposed points
         new_sample = self.samples[self.indices[0]]
         self.indices = self.indices[1:]
         if not self.indices.size:
