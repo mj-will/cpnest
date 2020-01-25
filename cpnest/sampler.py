@@ -13,7 +13,6 @@ from .proposal import DefaultProposalCycle
 from . import proposal
 from .cpnest import CheckPoint, RunManager
 from .cpthread import CPThread, CPCommand
-from .plot import plot_sampler_chain
 from tqdm import tqdm
 from operator import attrgetter
 
@@ -270,7 +269,6 @@ class Sampler(CPThread):
                        newline='\n',delimiter=' ')
             self.logger.critical("Sampler process {0!s}: saved {1:d} mcmc samples in {2!s}".format(os.getpid(),len(self.samples),'mcmc_chain_%s.dat'%os.getpid()))
         self.logger.critical("Sampler process {0!s} - mean acceptance {1:.3f}: exiting".format(os.getpid(), float(self.mcmc_accepted)/float(self.mcmc_counter)))
-        #plot_sampler_chain([self.proposal_stats], self.output)
         np.savetxt(os.path.join(self.output, 'proposal_{}.dat').format(os.getpid()),
                    self.proposal_stats, header=' '.join(['Proposal', 'Counter', 'Accepted']),
                    newline='\n', delimiter= ' ', fmt='%i')
@@ -382,11 +380,11 @@ class MetropolisHastingsSampler(Sampler):
             if self.verbose >=3:
                 self.samples.append(oldparam)
             self.sub_acceptance = float(sub_accepted)/float(sub_counter)
-            #self.proposal_stats.append([self._proposal_names[self.proposal.__class__.__name__], sub_counter, sub_accepted])
             self.estimate_nmcmc()
             self.mcmc_accepted += sub_accepted
             self.mcmc_counter += sub_counter
             self.acceptance    = float(self.mcmc_accepted)/float(self.mcmc_counter)
+            self.proposal_stats.append([self._proposal_names[self.proposal.__class__.__name__], sub_counter, sub_accepted])
             # Yield the new sample
             yield (sub_counter, oldparam)
 
