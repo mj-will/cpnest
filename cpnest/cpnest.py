@@ -317,11 +317,13 @@ class CPNest(object):
             plot.plot_hist(pos[n].ravel(),name=n,filename=os.path.join(self.output,'posterior_{0}.png'.format(n)))
         for n in self.nested_samples.dtype.names:
             plot.plot_chain(self.nested_samples[n],name=n,filename=os.path.join(self.output,'nschain_{0}.png'.format(n)))
+        plot.plot_nested_samples(self.nested_samples, filename=os.path.join(self.output, 'nested_samples.png'))
         import numpy as np
         plotting_posteriors = np.squeeze(pos.view((pos.dtype[0], len(pos.dtype.names))))
         if corner: plot.plot_corner(plotting_posteriors,labels=pos.dtype.names,filename=os.path.join(self.output,'corner.png'))
 
-        plot.plot_ns(self.NS.output_folder + 'nested_samples.dat', filename=self.NS.output_folder + 'ns.png')
+        plot.plot_proposal_stats(self.output)
+
 
     def worker_sampler(self, producer_pipe, logLmin):
         cProfile.runctx('self.sampler.produce_sample(producer_pipe, logLmin)', globals(), locals(), 'prof_sampler.prof')

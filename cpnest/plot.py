@@ -19,32 +19,25 @@ def plot_chain(x,name=None,filename=None):
         plt.savefig(filename,bbox_inches='tight')
     plt.close()
 
-def plot_sampler_chain(chains, path='./'):
-    import os
-    path = path + 'proposal_{}_'.format(os.getpid())
-    chains = np.array(chains)
-    plot_acceptance(chains, path + 'acceptance.png')
-    hist_acceptance(chains, path + 'hist_acceptance.png')
-    plot_likelihood_evaluations(chains, path + 'likelihood.png')
-    plot_counts(chains, path + 'counts.png')
-
-def plot_acceptance(path, filename=None):
+def plot_proposal_stats(path):
+    """
+    Plot acceptance and number of proposed points for each chain
+    """
     import glob
     files = glob.glob(path + 'proposal*.dat')
     chains = []
     for f in files:
         chains.append(np.loadtxt(f))
+
     fig = plt.figure(figsize=(10,6))
     for i, c in enumerate(chains):
         plt.plot((c[:, 2] / c[:, 1]), '.', label='Chain {}'.format(i))
     plt.xlabel('Iteration')
     plt.ylabel('Acceptance ratio')
     plt.legend()
-    if filename is not None:
-        plt.savefig(filename,bbox_inches='tight')
-    else:
-        plt.savefig(path + 'acceptance.png' ,bbox_inches='tight')
+    plt.savefig(path + 'proposal_acceptance.png' ,bbox_inches='tight')
     plt.close()
+
     fig = plt.figure(figsize=(10,6))
     for i, c in enumerate(chains):
         plt.plot(c[:, 1], '.', label='Chain {} proposed'.format(i))
@@ -52,51 +45,30 @@ def plot_acceptance(path, filename=None):
     plt.xlabel('Iteration')
     plt.ylabel('Count')
     plt.legend()
-    if filename is not None:
-        plt.savefig(filename,bbox_inches='tight')
-    else:
-        plt.savefig(path + 'counts.png' ,bbox_inches='tight')
+    plt.savefig(path + 'proposal_counts.png' ,bbox_inches='tight')
     plt.close()
 
-def hist_acceptance(chains, filename=None):
-    fig = plt.figure(figsize=(10,6))
-    for i, c in enumerate(chains):
-        plt.hist((c[:, 2] / c[:, 1]), 50, density=True, alpha=0.5, label='Chain {}'.format(i))
-    plt.xlabel('Acceptance ratio')
-    plt.legend()
-    if filename is not None:
-        plt.savefig(filename,bbox_inches='tight')
-    plt.close()
-
-def plot_likelihood_evaluations(chains, filename=None):
     fig = plt.figure(figsize=(10,6))
     for i, c in enumerate(chains):
         plt.plot(np.cumsum(c[:, 1]), label='Chain {}'.format(i))
     plt.xlabel('Iteration')
     plt.ylabel('Count')
     plt.legend()
-    if filename is not None:
-        plt.savefig(filename,bbox_inches='tight')
+    plt.savefig(path + 'proposal_likelihood_evalutions.png', bbox_inches='tight')
     plt.close()
 
-def plot_counts(chains, filename=None):
-    fig = plt.figure(figsize=(10,6))
-    for i, c in enumerate(chains):
-        plt.plot(c[:, 1], '.', label='Chain {} proposed'.format(i))
-        plt.plot(c[:, 2], '.', label='Chain {} accepted'.format(i))
-    plt.xlabel('Iteration')
-    plt.ylabel('Count')
-    plt.legend()
-    if filename is not None:
-        plt.savefig(filename,bbox_inches='tight')
-    plt.close()
-
-def plot_ns(ns_file, filename=None):
-    ns = np.loadtxt(ns_file)
+def plot_nested_samples(nested_samples, filename=None):
+    """
+    Make a corner plot showing all of the nested_samples
+    """
+    ns = []
+    for n in nested_samples.dtype.names:
+        ns.append(nested_samples[n])
+    ns = np.array(ns).T
     samples = ns[:, :-2]
-    N = len(samples)
-    c = plt.cm.plasma(np.linspace(0, 1, N))
+    N = samples.shape[0]
     d = samples.shape[-1]
+    c = plt.cm.plasma(np.linspace(0, 1, N))
 
     fig,ax = plt.subplots(d, d, figsize=(20,20))
     for i in range(d):
@@ -111,7 +83,6 @@ def plot_ns(ns_file, filename=None):
     if filename is not None:
         plt.savefig(filename,bbox_inches='tight')
     plt.close()
-
 
 def plot_hist(x,name=None,filename=None):
     """
