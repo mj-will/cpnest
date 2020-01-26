@@ -431,7 +431,6 @@ class CouplingLayer(nn.Module):
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
         mask = self.mask
-
         masked_inputs = inputs * mask
         if cond_inputs is not None:
             masked_inputs = torch.cat([masked_inputs, cond_inputs], -1)
@@ -477,7 +476,7 @@ class FlowSequential(nn.Sequential):
 
         return inputs, logdets
 
-    def log_probs(self, inputs, cond_inputs = None):
+    def log_probs(self, inputs, cond_inputs=None):
         u, log_jacob = self(inputs, cond_inputs)
         log_probs = (-0.5 * u.pow(2) - 0.5 * math.log(2 * math.pi)).sum(
             -1, keepdim=True)
