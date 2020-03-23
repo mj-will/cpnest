@@ -719,8 +719,8 @@ class AugmentedSequential(nn.Sequential):
         for i,f in enumerate(feature):
             e = torch.Tensor(K, e_dim).normal_().to(feature.device)
             # need to pass the same feature K times (for each e)
-            f_repeated = f * torch.ones(K, f.size(0))
-            log_p_xe = self.log_p_xe(f_repeated, e, device=feature.device)
+            f_repeated = f * torch.ones(K, f.size(0), device=feature.device)
+            log_p_xe = self.log_p_xe(f_repeated, e)
             # compute sum of log probs
             lpx = -np.log(K) + torch.logsumexp(log_p_xe, (0))
             log_p_x[i] = lpx
@@ -736,8 +736,8 @@ class AugmentedSequential(nn.Sequential):
             e = torch.Tensor(K, e_dim).normal_().to(feature.device)
             log_q = self.log_N(e)
             # need to pass the same feature K times (for each e)
-            f_repeated = f * torch.ones(K, f.size(0))
-            log_p_xe = self.log_p_xe(f_repeated, e, device=feature.device)
+            f_repeated = f * torch.ones(K, f.size(0), device=feature.device)
+            log_p_xe = self.log_p_xe(f_repeated, e)
             # compute sum of ratio
             lpx = -np.log(K) + torch.logsumexp(log_p_xe - log_q, (0))
             log_p_x[i] = lpx
