@@ -17,7 +17,7 @@ def plot_chain(x,name=None,filename=None):
             filename=name+'_chain.png'
     if filename is not None:
         plt.savefig(filename,bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
 
 def plot_proposal_stats(path):
     """
@@ -36,7 +36,7 @@ def plot_proposal_stats(path):
     plt.ylabel('Acceptance ratio')
     plt.legend()
     plt.savefig(path + 'proposal_acceptance.png' ,bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
 
     fig = plt.figure(figsize=(10,6))
     for i, c in enumerate(chains):
@@ -46,7 +46,7 @@ def plot_proposal_stats(path):
     plt.ylabel('Count')
     plt.legend()
     plt.savefig(path + 'proposal_counts.png' ,bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
 
     fig = plt.figure(figsize=(10,6))
     for i, c in enumerate(chains):
@@ -55,34 +55,39 @@ def plot_proposal_stats(path):
     plt.ylabel('Count')
     plt.legend()
     plt.savefig(path + 'proposal_likelihood_evalutions.png', bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
 
-def plot_nested_samples(nested_samples, filename=None):
+def plot_corner_samples(samples, filename=None, cmap=True):
     """
     Make a corner plot showing all of the nested_samples
     """
-    ns = []
-    for n in nested_samples.dtype.names:
-        ns.append(nested_samples[n])
-    ns = np.array(ns).T
-    samples = ns[:, :-2]
+    samples_list = []
+    for n in samples.dtype.names:
+        samples_list.append(samples[n])
+    samples = np.array(samples_list).T
+    samples = samples[:, :-2]
     N = samples.shape[0]
     d = samples.shape[-1]
-    c = plt.cm.plasma(np.linspace(0, 1, N))
+    if cmap:
+        c = plt.cm.plasma(np.linspace(0, 1, N))
+        c_hist = 'tab:purple'
+    else:
+        c = 'tab:blue'
+        c_hist = c
 
-    fig,ax = plt.subplots(d, d, figsize=(20,20))
+    fig,ax = plt.subplots(d, d, figsize=(4*d, 4*d))
     for i in range(d):
         for j in range(d):
             if j < i:
-                ax[i, j].scatter(samples[:,j], samples[:,i], c=c, marker='.')
+                ax[i, j].scatter(samples[:,j], samples[:,i], c=c, marker='.', s=0.5)
             elif j == i:
-                ax[i, j].hist(samples[:, j], color='tab:purple')
+                ax[i, j].hist(samples[:, j], bins=int(np.sqrt(N)), color=c_hist)
             else:
                 ax[i, j].set_axis_off()
     plt.tight_layout()
     if filename is not None:
         plt.savefig(filename,bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
 
 def plot_hist(x,name=None,filename=None):
     """
@@ -97,7 +102,7 @@ def plot_hist(x,name=None,filename=None):
             filename=name+'_hist.png'
     if filename is not None:
         plt.savefig(filename,bbox_inches='tight')
-    plt.close()
+    plt.close(fig)
 
 def plot_corner(xs,filename=None,**kwargs):
     """
@@ -109,8 +114,7 @@ def plot_corner(xs,filename=None,**kwargs):
     corner.corner(xs[:,mask],**kwargs)
     if filename is not None:
         plt.savefig(filename,bbox_inches='tight')
-    plt.close()
-
+    plt.close(fig)
 
 def get_contours(x, y, bins=20, levels=None, smooth=1.0, weights=None):
 
@@ -195,8 +199,8 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
         labels = ["Data " + str(i) for i in range(len(x))]
     # crop plots
     crop_plot = False
-    if np.min(x[0]) >= -1. and np.max(x[0]) <= 1.:
-        crop_plot = True
+    #if np.min(x[0]) >= -1. and np.max(x[0]) <= 1.:
+    #    crop_plot = True
     # main loop
     contour_plots = []
     fig, axes = plt.subplots(N_params, N_params, figsize=(5*N_params, 5*N_params))
@@ -210,6 +214,7 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
                 idx = [j, i]
                 # loop over arrays of inputs
                 for n, a in enumerate(x):
+                    print(a)
                     sp = a[:, idx].T
                     levels = [0.68, 0.9, 0.95]
                     X2, Y2, H2, V, H = get_contours(*sp, levels=levels)
@@ -288,4 +293,4 @@ def plot_corner_contour(x, filename=None, parameters=None, labels=None, labels_d
     plt.tight_layout()
     if filename is not None:
         plt.savefig(filename, bbox_inches='tight')
-    plt.close(fig)
+    plt.close('all')
