@@ -193,6 +193,21 @@ class NestedSampler(object):
                 self.training_frequency = trainer_dict['training_frequency']
             else:
                 self.training_frequency = self.Nlive
+
+            if 'memory' in trainer_dict:
+                memory = trainer_dict['memory']
+                self.logger.info('Memory: {}'.format(memory))
+                if memory:
+                    if str(memory).lower() == 'all':
+                        memory = 0
+                    self.memory =  memory
+                    self.enable_memory = True
+                else:
+                    self.memory = None
+                    self.enable_memory = False
+            else:
+                self.enable_memory = False
+
             self.n_likelihood_evaluations = None
             self.logger.info("Training enabled in nested sampling")
 
@@ -236,7 +251,7 @@ class NestedSampler(object):
         Write the evidence logZ and maximum likelihood to the evidence_file
         """
         with open(self.evidence_file,"w") as f:
-            f.write('{0:.5f} {1:.5f}\n'.format(self.state.logZ, self.logLmax.value))
+            f.write('{0:.5f} {1:.5f} {2:.5f}\n'.format(self.state.logZ, self.logLmax.value, self.state.info))
 
     def setup_random_seed(self,seed):
         """
@@ -279,8 +294,10 @@ class NestedSampler(object):
                     break
                 else:
                     if self.trainer:
+                        # it it reaches the max number of rejected points
+                        # it will break and force the trainer to retrain
                         if loops > 1 and not updated:
-                            self.retrain = True
+                            self.retrain = False
                             if self.iteration - self.last_updated > self.nthreads:
                                 # force state update
                                 self.logger.debug("Forcing update")
@@ -292,7 +309,7 @@ class NestedSampler(object):
                                 while not self.manager.trained.value:
                                     pass
                                 self.manager.stop_training.value = 0
-                                self.state_update(force=True, force_train=True)
+                                self.state_update(force=True, force_train=False)
                                 self.last_updated = self.iteration
                             else:
                                 self.logger.debug("Using previous update {}".format(self.last_update))
@@ -347,7 +364,7 @@ class NestedSampler(object):
             sys.stderr.write("\n")
             sys.stderr.flush()
 
-        if True:
+        if False:
             if self.trainer:
                 self.logger.info("Training on intial live points")
                 payload = (0, self.params.copy())
@@ -401,12 +418,21 @@ class NestedSampler(object):
             self.logger.warning("Nested Sampling process {0!s}, exiting".format(os.getpid()))
             return 0
 
-        if self.trainer:
-            while not self.manager.trained.value:
-                pass
-
         try:
             i=0
+            if self.trainer:
+                for c in self.manager.consumer_pipes:
+                    c.send(CPCommand('switch_proposal', 'naive'))
+
+                while i < 2. * self.Nlive:
+                    self.consume_sample()
+                    i += 1
+
+            #if self.trainer:
+            #    self.train()
+            #    while not self.manager.trained.value:
+            #        pass
+
             while self.condition > self.tolerance:
 
                 self.state_update()
@@ -476,11 +502,11 @@ class NestedSampler(object):
         if not self.manager.training.value:
             self.logger.info("Training")
             params = self.params.copy()
-            N = 500
-            if len(self.nested_samples):
-                if len(self.nested_samples) >= N:
-                    pass
-                    #params += self.nested_samples[-N:].copy()
+            N = 5000
+            if self.enable_memory:
+                if len(self.nested_samples):
+                    if len(self.nested_samples) >= self.memory:
+                        params += self.nested_samples[-self.memory:].copy()
             payload = (self.iteration, params)
             self.manager.trainer_consumer_pipe.send(CPCommand('train', payload=payload))
             self.manager.training.value = 1
