@@ -312,12 +312,14 @@ class CPNest(object):
         Make diagnostic plots of the posterior and nested samples
         """
         pos = self.posterior_samples
+
         from . import plot
         for n in pos.dtype.names:
             plot.plot_hist(pos[n].ravel(),name=n,filename=os.path.join(self.output,'posterior_{0}.png'.format(n)))
         for n in self.nested_samples.dtype.names:
             plot.plot_chain(self.nested_samples[n],name=n,filename=os.path.join(self.output,'nschain_{0}.png'.format(n)))
-        plot.plot_nested_samples(self.nested_samples, filename=os.path.join(self.output, 'nested_samples.png'))
+        plot.plot_corner_samples(self.nested_samples, filename=os.path.join(self.output, 'nested_samples.png'))
+        plot.plot_corner_samples(pos, filename=os.path.join(self.output, 'posterior_samples.png'), cmap=False)
         import numpy as np
         plotting_posteriors = np.squeeze(pos.view((pos.dtype[0], len(pos.dtype.names))))
         if corner: plot.plot_corner(plotting_posteriors,labels=pos.dtype.names,filename=os.path.join(self.output,'corner.png'))
