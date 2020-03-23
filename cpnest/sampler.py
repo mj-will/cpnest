@@ -188,6 +188,9 @@ class Sampler(CPThread):
         if proposal_type == 'flow':
             self.proposal = self.flow_proposal
             self.yield_sample = self.yield_sample_rejection
+        elif proposal_type == 'naive':
+            self.proposal = self.naive_proposal
+            self.yield_sample = self.yield_sample_rejection
         elif proposal_type == 'default':
             self.proposal = self.default_proposal
             self.yield_sample = self.yield_sample_mcmc
@@ -287,26 +290,41 @@ class Sampler(CPThread):
         Import flow proposal and initialise it
         """
         if not self.trainer_initialised:
-            if self.trainer_type == 'flow':
-                from .proposal import RandomFlowProposal
+            if 'flow' in self.trainer_type:
+                from .proposal import RandomFlowProposal, LogitFlowProposal, NaiveProposal, AugmentedFlowProposal
                 try:
                     device = self.trainer_dict["proposal_device"]
                 except:
                     device='cpu'
 
-                self.flow_proposal = RandomFlowProposal(
+                if 'logit' in self.trainer_type:
+                    if not self.trainer_dict['logit']:
+                        raise ValueError('Using flows with logit but logit set to false!')
+                    else:
+                        Proposal = LogitFlowProposal
+                elif 'aug' in self.trainer_type:
+                    Proposal = AugmentedFlowProposal
+                else:
+                    Proposal = RandomFlowProposal
+
+                self.flow_proposal = Proposal(
                         model_dict=self.trainer_dict["model_dict"],
                         names=self.model.names,
                         log_prior=self.model.log_prior,
                         prior_range=self.trainer_dict["priors"],
                         device=device,
-                        pool_size=self.trainer_dict["pool_size"],
+                        proposal_size=self.trainer_dict["proposal_size"],
                         fuzz=self.trainer_dict["fuzz"],
                         output=self.output + "proposal_{}/".format(os.getpid()))
                 self.trainer_model = self.flow_proposal
                 self.default_proposal = self.proposal
                 self.counter = 0
                 self.accepted = 0
+
+                self.naive_proposal = NaiveProposal(
+                        names=self.model.names,
+                        log_prior=self.model.log_prior,
+                        bounds=self.trainer_dict["priors"])
             else:
                 self.flow_proposal = None
                 self.default_proposal = None
@@ -384,7 +402,7 @@ class MetropolisHastingsSampler(Sampler):
             self.mcmc_accepted += sub_accepted
             self.mcmc_counter += sub_counter
             self.acceptance    = float(self.mcmc_accepted)/float(self.mcmc_counter)
-            self.proposal_stats.append([self._proposal_names[self.proposal.__class__.__name__], sub_counter, sub_accepted])
+            self.proposal_stats.append([0, sub_counter, sub_accepted])
             # Yield the new sample
             yield (sub_counter, oldparam)
 
@@ -495,7 +513,7 @@ class RejectionSampler(MetropolisHastingsSampler):
             if self.verbose >=3:
                 self.samples.append(oldparam)
             self.sub_acceptence = float(sub_accepted) / float(sub_counter)
-            self.proposal_stats.append([self._proposal_names[self.proposal.__class__.__name__], sub_counter, sub_accepted])
+            self.proposal_stats.append([0, sub_counter, sub_accepted])
             self.mcmc_accepted += sub_accepted
             self.mcmc_counter += sub_counter
             # Yield the new sample

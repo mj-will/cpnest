@@ -15,6 +15,14 @@ from scipy.special import logsumexp
 import matplotlib.pyplot as plt
 
 from cpnest.parameter import LivePoint
+from cpnest.flowtrainer import plot_samples
+from cpnest.flows import setup_model, setup_augmented_model
+
+def sigmoid(x):
+   return 1. / (1. + np.exp(-x))
+
+def logit(x):
+    return - np.log((1. / x) - 1.)
 
 
 class Proposal(object):
@@ -253,18 +261,70 @@ class EnsembleEigenVector(EnsembleProposal):
             out[n]+=jumpsize*self.eigen_vectors[k,i]
         return out
 
+
+class NaiveProposal(EnsembleProposal):
+
+    def __init__(self, names=None, log_prior=None, bounds=None, N=1000, **kwargs):
+        super(NaiveProposal, self).__init__(**kwargs)
+
+        self.dims = len(names)
+        self.names = names
+        self.log_prior = log_prior
+        self.bounds = bounds
+        self.prior_denom = np.ptp(bounds)
+        self.populated = False
+        self.N = N
+
+    def make_live_point(self, theta):
+        """Create an instance of LivePoint with the given inputs"""
+        return LivePoint(self.names, d=theta)
+
+    def log_proposal(self, theta):
+        """Proposal probability"""
+        return - np.log(self.prior_denom)
+
+    def get_weights(self, theta):
+        """Get weights for the samples"""
+        log_q = np.array([self.log_proposal(t) for t in theta])
+        log_p = np.array([self.log_prior(t) for t in theta])
+        log_w = log_p - log_q
+        log_w -= np.max(log_w)
+        return log_w
+
+    def get_sample(self, old_sample):
+        """Propose a new sample"""
+        if not self.populated:
+            theta = np.random.uniform(self.bounds[0], self.bounds[1], [self.N, self.dims])
+            theta = [self.make_live_point(t) for t in theta]
+            log_w = self.get_weights(theta)
+            # rejection sampling
+            log_u = np.log(np.random.rand(self.N))
+            indices = np.where((log_w - log_u) >= 0)[0]
+            self.samples = [theta[i] for i in indices]
+            self.populated = True
+        # get new sample
+        new_sample = self.samples.pop()
+        if not self.samples:
+            self.populated = False
+        return new_sample
+
+
 class FlowProposal(EnsembleProposal):
 
     torch = __import__('torch')
     log_J = 0.0
 
-    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, pool_size=10000, fuzz=1.0):
+    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, proposal_size=10000, fuzz=1.0, setup=None):
 
         super(FlowProposal, self).__init__()
-
-        from .flowtrainer import FlowModel
+        print(model_dict)
+        #from .flowtrainer import FlowModel
         self.logger = logging.getLogger("CPNest")
-        self.model = FlowModel(**model_dict, device=device)                     # Flow model
+        #self.model = FlowModel(**model_dict, device=device)                     # Flow model
+        if setup is None:
+            self.model = setup_model(**model_dict, device=device)
+        else:
+            self.model = setup(**model_dict, device=device)
         self.update_count = 0                  # times flows have been updated
         self.ndims = model_dict["n_inputs"]
         self.mu = np.zeros(self.ndims)
@@ -283,7 +343,7 @@ class FlowProposal(EnsembleProposal):
             self.setup_normalisation(prior_range)
         self.previous_sample = None
 
-        self.pool_size = pool_size
+        self.proposal_size = proposal_size
 
     @staticmethod
     def unpack_live_point(point):
@@ -324,7 +384,7 @@ class FlowProposal(EnsembleProposal):
     def forward_pass(self, theta):
         """Pass a vector of points through the model"""
         theta_tensor = self.torch.Tensor(theta.astype(np.float32)).to(self.model.device)
-        z, log_J = self.model(theta_tensor)
+        z, log_J = self.model(theta_tensor, mode='direct')
         z = z.detach().cpu().numpy()
         log_J = log_J.detach().cpu().numpy()
         return z, np.squeeze(log_J)
@@ -381,7 +441,6 @@ class FlowProposal(EnsembleProposal):
         samples = samples[np.where(np.sum(samples**2., axis=-1) < r2 )]
         return samples
 
-
     def uniform_prior(self, z):
         """
         Uniform prior for use with points drawn uniformly with an n-shpere
@@ -417,9 +476,9 @@ class FlowProposal(EnsembleProposal):
 
 class RandomFlowProposal(FlowProposal):
 
-    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, pool_size=10000, fuzz=1.0, output=None):
+    def __init__(self, output='./', **kwargs):
 
-        super(RandomFlowProposal, self).__init__(model_dict, names, log_prior, device, prior_range, pool_size, fuzz)
+        super(RandomFlowProposal, self).__init__(**kwargs)
         self.output = os.path.join(output, '')
         os.makedirs(self.output, exist_ok=True)
         self.count = 0
@@ -433,6 +492,23 @@ class RandomFlowProposal(FlowProposal):
         flag = np.array([flag, flag])
         np.save(self.output + 'samples_{}.npy'.format(self.count), [z, samples, flag])
         self.count += 1
+
+    def load_weights(self, weights_file):
+        """Update the model from a weights file"""
+        self.model.load_state_dict(self.torch.load(weights_file))
+        self.model.eval()
+        self.populated = False
+        self.update_count += 1
+
+    def complete_draw(self, N):
+        """
+        Draw from a gaussian, NOT truncated
+        """
+        s = np.random.randn(N, self.ndims)
+        s = s[np.abs(s[:, 0]) < 1.]
+        print(len(s))
+        print(s.min(), s.max())
+        return s
 
     def populate(self, old_r2, N=10000):
         """Populate a pool of latent points"""
@@ -479,9 +555,9 @@ class RandomFlowProposal(FlowProposal):
                 # This requires pass through the flows
                 old_sample_np = self.unpack_live_point(old_sample) # unpack LivePoint
                 old_sample_np = self.rescale_input(old_sample_np)  # rescale (-1, 1)
-                old_z, _ = self.forward_pass(old_sample_np)        # to latent space
+                old_z, _ = self.forward_pass(old_sample_np.reshape(1, -1))        # to latent space
                 old_r2 = self.radius2(old_z)                    # contour
-                self.populate(old_r2, N=self.pool_size)         # points within contour
+                self.populate(old_r2, N=self.proposal_size)         # points within contour
 
                 # get samples with index given by first entry in possible indices
                 count += 1
@@ -491,18 +567,7 @@ class RandomFlowProposal(FlowProposal):
 
             self.save_samples(self.z, self.samples, self.indices)
             samples = np.array([s.values for s in self.samples])
-            fig, axs = plt.subplots(1, 2, figsize=(10,5))
-            axs = axs.ravel()
-            old_sample_np = self.rescale_output(old_sample_np)
-            assert len(self.z) == len(samples)
-            axs[0].plot(self.z[:, 0][self.indices], self.z[:,1][self.indices], ',')
-            axs[0].plot(old_z[0], old_z[1], 'o')
-            axs[1].plot(samples[:, 0], samples[:, 1], ',')
-            axs[1].plot(old_sample_np[0], old_sample_np[1], 'o', label='Worst point: {}'.format(old_sample_np))
-            plt.legend()
-            plt.title(f'Proposal samples {self.count-1} using block {self.update_count}')
-            fig.savefig(self.output + 'samples_{}.png'.format(self.count-1))
-            plt.close(fig)
+            plot_samples(self.z, samples, output=self.output, filename='samples_{}.png'.format(self.count-1))
 
         # new sample is drawn randomly from proposed points
         new_sample = self.samples[self.indices[0]]
@@ -512,6 +577,203 @@ class RandomFlowProposal(FlowProposal):
             self.logger.debug('Pool of points is empty')
         # make live point and return
         return new_sample
+
+
+class LogitFlowProposal(RandomFlowProposal):
+
+    def __init__(self, **kwargs):
+        super(LogitFlowProposal, self).__init__(**kwargs)
+
+    def setup_normalisation(self, priors):
+        """Setup the normalisation given the priors"""
+        p_max = np.max(priors, axis=0)
+        p_min = np.min(priors, axis=0)
+
+        def normalise_logit(x):
+            """
+            Normalise samples to 0, 1 then apply the logit function
+            """
+            x = (x - p_min) / (p_max - p_min)
+            return logit(x)
+
+        def inverse_normalise_logit(x):
+            """
+            Apply the sigmoid function (inverse logit) and rescle to original inputs
+            """
+            x = sigmoid(x)
+            return (p_max - p_min) * x + p_min
+
+        # over-ride defaults
+        self.rescale_input = normalise_logit
+        self.rescale_output = inverse_normalise_logit
+
+    def compute_weights(self, theta, z, log_J, theta_logit):
+        """
+        Compute the weight for a given set of samples
+        """
+        log_J_logit = self.log_jacobian_sigmoid_inverse(theta_logit)
+        log_q = self.log_proposal_prob(z, log_J) + log_J_logit
+        log_p = np.array([self.log_prior(t) for t in theta])
+        log_w = log_p - log_q
+        log_w -= np.max(log_w)
+        return log_w
+
+    def log_jacobian_logit(self, theta):
+        """
+        Compute the jacobian for the logit transformation
+        """
+        return np.log(np.sum(1. / (theta - theta ** 2.), axis=1))
+
+    def log_jacobian_sigmoid_inverse(self, theta):
+        """
+        Compute the jacobian of the sigmoid transformation
+        """
+        return np.sum(np.log((((np.exp(-theta) + 1) ** 2.) / np.exp(-theta))), axis=1)
+        #return -np.log(np.sum( np.exp(-theta) / ((np.exp(-theta) + 1) ** 2.), axis=1))
+        #return np.sum(theta, axis=1) +  np.sum(2. * np.log(1 + np.exp(-theta)), axis=1)
+
+    def populate(self, old_r2, N=10000):
+        """Populate a pool of latent points"""
+        self.logger.debug("Populating proposal")
+        # draw n samples and sort by radius
+        # only proceed if the draw has produced points
+        # mainly an issue with drawing from the gaussian
+        self.samples = []
+        self.z = np.empty([0, self.ndims])
+        while len(self.samples) < N:
+            while True:
+                z = self.draw(old_r2, N, fuzz=self.fuzz)
+                if z.size:
+                    break
+
+            self.r2 = self.radius2(z)
+            samples_logit, log_J = self.backward_pass(z)
+
+            # rescale given priors used intially, need for priors
+            samples = self.rescale_output(samples_logit)
+            samples = [self.make_live_point(p) for p in samples]
+            alpha = self.compute_weights(samples, z, -log_J, samples_logit)
+
+            # rejection sampling
+            u = np.log(np.random.rand(len(samples)))
+            indices = np.where((alpha - u) >= 0)[0]
+            if len(indices):
+                # array of indices to take random draws from
+                self.samples += [samples[i] for i in indices]
+                self.z = np.concatenate([self.z, z[indices]], axis=0)
+
+        self.samples = self.samples[:N]
+        self.z = self.z[:N]
+        self.indices = np.random.permutation(len(self.samples))
+        self.populated = True
+        self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), N))
+
+
+class AugmentedFlowProposal(RandomFlowProposal):
+
+    setup_model = setup_augmented_model
+
+    def __init__(self, **kwargs):
+        super(AugmentedFlowProposal, self).__init__(**kwargs)
+
+        self.augment_dim = self.model.augment_dim
+        self.new_weights = False
+
+    def load_weights(self, weights_file):
+        """Update the model from a weights file"""
+        self.model.load_state_dict(self.torch.load(weights_file))
+        self.model.eval()
+        self.populated = False
+        self.new_weights = True
+        self.update_count += 1
+
+    def forward_pass(self, theta):
+        """Generate a corresponding augmented vector and pass through the model"""
+        theta_tensor = self.torch.Tensor(theta.astype(np.float32)).to(self.model.device)
+        e_tensor = self.torch.randn(theta_tensor.shape[0], self.augment_dim).to(self.model.device)
+        y, z, log_J = self.model(theta_tensor, e_tensor, mode='forward')
+        y = y.detach().cpu().numpy()
+        log_J = log_J.detach().cpu().numpy()
+        return y, np.squeeze(log_J)
+
+    def backward_pass(self, y):
+        """A backwards pass from the model (latent -> real)"""
+        # Notation here matches augmented flows paper
+        y_tensor = self.torch.Tensor(y.astype(np.float32)).to(self.model.device)
+        z_tensor = self.torch.randn(y_tensor.shape[0], self.augment_dim).to(self.model.device)
+        x, e, log_J = self.model(y_tensor, z_tensor, mode='generate')
+        #x = x.detach().cpu().numpy()
+        #log_J = log_J.detach().cpu().numpy()
+        return x#, np.squeeze(log_J)
+
+    def compute_weights(self, theta):
+        """
+        Compute the weight for a given set of samples
+
+        Note: theta must be a tensor
+        """
+        log_q = self.model.log_p_x(theta, self.augment_dim, K=1000)
+        log_q = log_q.detach().cpu().numpy().flatten()
+        # convert theta to live points for prior
+        theta = theta.detach().cpu().numpy()
+        theta = self.rescale_output(theta)
+        theta = [self.make_live_point(t) for t in theta]
+        log_p = np.array([self.log_prior(t) for t in theta])
+        # compute log weight
+        log_w = log_p - log_q
+        log_w -= np.max(log_w)
+        return theta, log_w, log_q
+
+    def populate(self, old_r2, N=10000):
+        """Populate a pool of latent points"""
+        self.logger.debug("Populating proposal")
+        # draw n samples and sort by radius
+        # only proceed if the draw has produced points
+        # mainly an issue with drawing from the gaussian
+        self.samples = []
+        self.z = np.empty([0, self.ndims])
+        i = 0
+        while len(self.samples) < N:
+            self.new_weights = False
+            if self.new_weights:
+                self.logger.debug('Using complete gaussian')
+                z = self.complete_draw(N)
+            else:
+                while True:
+                    z = self.draw(old_r2, N, fuzz=self.fuzz)
+                    if z.size:
+                        break
+
+            self.r2 = self.radius2(z)
+            # Only need x to compute log_p_x
+            # see equation i
+            samples_tensor = self.backward_pass(z)
+            # get weights and samples as libe points
+            samples, alpha, log_q = self.compute_weights(samples_tensor)
+            print(alpha.shape)
+            fig = plt.figure()
+            plt.hist([alpha, log_q], 20)
+            fig.savefig(f'./outdir/proposal_test/alpha{i}.png')
+            plt.close(fig)
+            fig = plt.figure()
+            plt.hist(samples_tensor.numpy())
+            fig.savefig(f'./outdir/proposal_test/samples{i}.png')
+            i += 1
+            # rejection sampling
+            u = np.log(np.random.rand(len(samples)))
+            indices = np.where((alpha - u) >= 0)[0]
+            if len(indices):
+                # array of indices to take random draws from
+                self.samples += [samples[i] for i in indices]
+                self.z = np.concatenate([self.z, z[indices]], axis=0)
+            self.logger.debug('Populating: {} / {} points accepted'.format(len(self.samples), N))
+
+        self.samples = self.samples[:N]
+        self.z = self.z[:N]
+        self.indices = np.random.permutation(len(self.samples))
+        self.populated = True
+        self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), N))
+
 
 
 class DefaultProposalCycle(ProposalCycle):

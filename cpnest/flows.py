@@ -12,6 +12,107 @@ import numpy as np
 import scipy as sp
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
+def plot_flows(model, n_inputs, N=1000, inputs=None, cond_inputs=None, mode='inverse', output='./'):
+    """
+    Plot each stage of a series of flows
+    """
+    import matplotlib.pyplot as plt
+
+    if n_inputs > 2:
+        raise NotImplementedError('Plotting for higher dimensions not implemented yet!')
+
+    outputs = []
+
+    if mode == 'direct':
+        if inputs is None:
+            raise ValueError('Can not sample from parameter space!')
+        else:
+            inputs = torch.from_numpy(inputs).to(model.device)
+
+        for module in model._modules.values():
+            inputs, _ = module(inputs, cond_inputs, mode)
+            outputs.append(inputs.detach().cpu().numpy())
+    else:
+        if inputs is None:
+            inputs  = torch.randn(N, n_inputs, device=model.device)
+            orig_inputs = inputs.detach().cpu().numpy()
+        for module in reversed(model._modules.values()):
+            inputs, _ = module(inputs, cond_inputs, mode)
+            outputs.append(inputs.detach().cpu().numpy())
+
+    print(len(outputs))
+
+    n = int(len(outputs) / 2) + 1
+    m = 1
+
+    if n > 5:
+        m = int(np.ceil(n / 5))
+        n = 5
+
+    z = orig_inputs
+    pospos = np.where(np.all(z>=0, axis=1))
+    negneg = np.where(np.all(z<0, axis=1))
+    posneg = np.where((z[:, 0] >= 0) & (z[:, 1] < 0))
+    negpos = np.where((z[:, 0] < 0) & (z[:, 1] >= 0))
+
+    points = [pospos, negneg, posneg, negpos]
+    colours = ['r', 'c', 'g', 'tab:purple']
+    colours = plt.cm.Set2(np.linspace(0, 1, 8))
+
+
+    fig, ax = plt.subplots(m, n, figsize=(n * 3, m * 3))
+    ax = ax.ravel()
+    for j, c in zip(points, colours):
+        ax[0].plot(z[j, 0], z[j, 1], ',', c=c)
+        ax[0].set_title('Latent space')
+    for i, o in enumerate(outputs[::2]):
+        i += 1
+        for j, c in zip(points, colours):
+            ax[i].plot(o[j, 0], o[j, 1], ',', c=c)
+        ax[i].set_title(f'Flow {i}')
+        #ax[i].plot(o[:, 0], o[:, 1], ',')
+    plt.tight_layout()
+    fig.savefig(output + 'flows.png')
+
+
+
+def setup_model(n_inputs=None,  n_conditional_inputs=None, n_neurons=128, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu'):
+    """"
+    Setup the model
+    """
+    if device is None:
+        raise ValueError("Must provided a device or a string for a device")
+    if type(device) == str:
+        device = torch.device(device)
+
+    layers = []
+    ftype = ftype.lower()
+    if ftype == 'realnvp':
+        mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
+        for _ in range(n_blocks):
+            layers += [CouplingLayer(n_inputs, n_neurons, mask,
+                                     num_cond_inputs=n_conditional_inputs,
+                                     num_layers=n_layers),
+                       BatchNormFlow(n_inputs)]
+            #layers += [MADE(n_inputs, n_neurons)]
+            mask = 1 - mask
+    elif ftype == 'maf':
+        for _ in range(n_blocks):
+            layers += [
+                MADE(n_inputs, n_neurons, n_conditional_inputs),
+                BatchNormFlow(n_inputs),
+                Reverse(n_inputs)
+            ]
+    else:
+        raise ValueError('Unknown flow type, choose from RealNPV or MAF')
+
+    model = FlowSequential(*layers)
+    model.to(device)
+    model.device = device
+    return model
 
 def get_mask(in_features, out_features, in_flow_features, mask_type=None):
     """
@@ -31,6 +132,30 @@ def get_mask(in_features, out_features, in_flow_features, mask_type=None):
         out_degrees = torch.arange(out_features) % (in_flow_features - 1)
 
     return (out_degrees.unsqueeze(-1) >= in_degrees.unsqueeze(0)).float()
+
+
+class MaskedLinear(nn.Module):
+    def __init__(self,
+                 in_features,
+                 out_features,
+                 mask,
+                 cond_in_features=None,
+                 bias=True):
+        super(MaskedLinear, self).__init__()
+        self.linear = nn.Linear(in_features, out_features)
+        if cond_in_features is not None:
+            self.cond_linear = nn.Linear(
+                cond_in_features, out_features, bias=False)
+
+        self.register_buffer('mask', mask)
+
+    def forward(self, inputs, cond_inputs=None):
+        output = F.linear(inputs, self.linear.weight * self.mask,
+                          self.linear.bias)
+        if cond_inputs is not None:
+            output += self.cond_linear(cond_inputs)
+        return output
+
 
 class MADE(nn.Module):
     """ An implementation of MADE
@@ -54,13 +179,13 @@ class MADE(nn.Module):
         output_mask = get_mask(
             num_hidden, num_inputs * 2, num_inputs, mask_type='output')
 
-        self.joiner = nn.MaskedLinear(num_inputs, num_hidden, input_mask,
+        self.joiner = MaskedLinear(num_inputs, num_hidden, input_mask,
                                       num_cond_inputs)
 
         self.trunk = nn.Sequential(act_func(),
-                                   nn.MaskedLinear(num_hidden, num_hidden,
+                                   MaskedLinear(num_hidden, num_hidden,
                                                    hidden_mask), act_func(),
-                                   nn.MaskedLinear(num_hidden, num_inputs * 2,
+                                   MaskedLinear(num_hidden, num_inputs * 2,
                                                    output_mask))
 
     def forward(self, inputs, cond_inputs=None, mode='direct'):
@@ -78,32 +203,6 @@ class MADE(nn.Module):
                 x[:, i_col] = inputs[:, i_col] * torch.exp(
                     a[:, i_col]) + m[:, i_col]
             return x, -a.sum(-1, keepdim=True)
-
-
-class Sigmoid(nn.Module):
-    def __init__(self):
-        super(Sigmoid, self).__init__()
-
-    def forward(self, inputs, cond_inputs=None, mode='direct'):
-        if mode == 'direct':
-            s = torch.sigmoid
-            return s(inputs), torch.log(s(inputs) * (1 - s(inputs))).sum(
-                -1, keepdim=True)
-        else:
-            return torch.log(inputs /
-                             (1 - inputs)), -torch.log(inputs - inputs**2).sum(
-                                 -1, keepdim=True)
-
-
-class Logit(Sigmoid):
-    def __init__(self):
-        super(Logit, self).__init__()
-
-    def forward(self, inputs, cond_inputs=None, mode='direct'):
-        if mode == 'direct':
-            return super(Logit, self).forward(inputs, 'inverse')
-        else:
-            return super(Logit, self).forward(inputs, 'direct')
 
 
 class BatchNormFlow(nn.Module):
@@ -491,3 +590,183 @@ class FlowSequential(nn.Sequential):
             cond_inputs = cond_inputs.to(device)
         samples = self.forward(noise, cond_inputs, mode='inverse')[0]
         return samples
+
+
+def swish(x):
+    """Swish activation function"""
+    return torch.mul(x, torch.sigmoid(x))
+
+
+class Transform(nn.Module):
+    """
+    Basic neural net to perform encoding or decoding
+    """
+    def __init__(self, in_dim, out_dim, n_neurons):
+        super(Transform, self).__init__()
+
+        self.linear1 = nn.Linear(in_dim, n_neurons)
+        self.linear2 = nn.Linear(n_neurons, n_neurons)
+        self.linear3 = nn.Linear(n_neurons, 2 * out_dim)
+
+        with torch.no_grad():
+            self.linear3.weight.data.fill_(0.)
+            self.linear3.bias.data.fill_(0.)
+
+    def forward(self, x):
+        """
+        Forward pass
+        """
+        x = self.linear1(x)
+        x = swish(x)
+        x = self.linear2(x)
+        x = swish(x)
+        x = self.linear3(x)
+        x_s, x_m = torch.split(x, x.shape[-1] // 2, dim=1)
+        x_s = torch.nn.functional.logsigmoid(x_s)
+        x_s = torch.clamp(x_s, min=-2.5, max=2.5)
+        return x_s, x_m
+
+
+class AugmentedBlock(nn.Module):
+    """
+    An implementation on augmented flow blocks
+
+    See: https://arxiv.org/abs/2002.07101
+    """
+    def __init__(self, x_dim, e_dim, n_layers=2, n_neurons=64):
+        """
+        Intialise the block
+        """
+        super(AugmentedBlock, self).__init__()
+        self.encoder = Transform(x_dim, e_dim, n_neurons)
+        self.decoder = Transform(e_dim, x_dim, n_neurons)
+
+    def forward(self, feature, augment, mode='forward'):
+        """
+        Forward or backwards pass
+        """
+        log_J = 0.
+        if mode == 'forward':
+            # encode e -> z | x
+            log_s, m = self.encoder(feature)
+            s = torch.exp(log_s)
+            z = s * augment + m
+            log_J += log_s.sum(-1, keepdim=True)
+            # decode x -> y | z
+            log_s, m = self.decoder(z)
+            s = torch.exp(log_s)
+            y = s * feature + m
+            log_J += log_s.sum(-1, keepdim=True)
+            return y, z, log_J
+        else:
+            # decode y -> x | z
+            log_s, m = self.decoder(augment)
+            s = torch.exp(-log_s)
+            x = s * (feature - m)
+            log_J -= log_s.sum(-1, keepdim=True)
+            # encode z -> e | z
+            log_s, m = self.encoder(x)
+            s = torch.exp(-log_s)
+            e = s * (augment - m)
+            log_J -= log_s.sum(-1, keepdim=True)
+            return x, e, log_J
+
+
+class AugmentedSequential(nn.Sequential):
+    """
+    A sequential container for augmented flows
+    """
+    def forward(self, feature, augment, mode='forward'):
+        """
+        Forward or backward pass through the flows
+        """
+        log_dets = torch.zeros(feature.size(0), 1, device=feature.device)
+        if mode == 'forward':
+            for module in self._modules.values():
+                feature, augment, log_J = module(feature, augment, mode)
+                log_dets += log_J
+        else:
+            for module in reversed(self._modules.values()):
+                feature, augment, log_J = module(feature, augment, mode)
+                log_dets += log_J
+
+        return feature, augment, log_dets
+
+    def log_N(self, x):
+        """
+        Calculate of the log probability of an N-dimensional gaussian
+        """
+        return (-0.5 * x.pow(2) - 0.5 * np.log(2 * np.pi)).sum(
+            -1, keepdim=True)
+
+    def log_p_xe(self, feature, augment):
+        """
+        Calculate the joint log probability p(x, e)
+        """
+        # get transformed features
+        y, z, log_J = self(feature, augment)
+        # y & z should be gaussian
+        y_prob = self.log_N(y)
+        z_prob = self.log_N(z)
+        return (y_prob + z_prob + log_J).sum(-1, keepdim=True)
+
+    def log_p_x(self, feature, e_dim, K=1000):
+        """
+        Calculate the lower bound of the marginalised log probability p(x)
+        """
+        log_p_x = torch.zeros(feature.size(0), 1, device=feature.device)
+        # get log p(x, e)
+        for i,f in enumerate(feature):
+            e = torch.Tensor(K, e_dim).normal_().to(feature.device)
+            # need to pass the same feature K times (for each e)
+            f_repeated = f * torch.ones(K, f.size(0))
+            log_p_xe = self.log_p_xe(f_repeated, e, device=feature.device)
+            # compute sum of log probs
+            lpx = -np.log(K) + torch.logsumexp(log_p_xe, (0))
+            log_p_x[i] = lpx
+        return log_p_x
+
+    def log_p_x_weighted(self, feature, e_dim, K=1000):
+        """
+        Calculate the lower bound of the marginalised log probability p(x)
+        """
+        log_p_x = torch.zeros(feature.size(0), 1, device=feature.device)
+        # get log p(x, e)
+        for i,f in enumerate(feature):
+            e = torch.Tensor(K, e_dim).normal_().to(feature.device)
+            log_q = self.log_N(e)
+            # need to pass the same feature K times (for each e)
+            f_repeated = f * torch.ones(K, f.size(0))
+            log_p_xe = self.log_p_xe(f_repeated, e, device=feature.device)
+            # compute sum of ratio
+            lpx = -np.log(K) + torch.logsumexp(log_p_xe - log_q, (0))
+            log_p_x[i] = lpx
+        return log_p_x
+
+
+def setup_augmented_model(n_inputs=None,  augment_dim=None, n_conditional_inputs=None, n_neurons=32, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu', **kwargs):
+    """"
+    Setup the model with augmented flows
+    """
+    if device is None:
+        raise ValueError("Must provided a device or a string for a device")
+    if type(device) == str:
+        device = torch.device(device)
+
+    if n_conditional_inputs is not None:
+        raise NotImplementedError('Augmented flows are not implemented for conditional inputs')
+
+    layers = []
+    ftype = ftype.lower()
+    if ftype == 'realnvp':
+        blocks = []
+        for n in range(n_blocks):
+            blocks += [AugmentedBlock(n_inputs, augment_dim, n_layers, n_neurons)]
+    else:
+        raise ValueError('Unknown flow type, choose from RealNVP')
+
+    model = AugmentedSequential(*blocks).to('cuda')
+    model.to(device)
+    model.augment_dim = augment_dim
+    model.device = device
+    return model
