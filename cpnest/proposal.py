@@ -500,16 +500,6 @@ class RandomFlowProposal(FlowProposal):
         self.populated = False
         self.update_count += 1
 
-    def complete_draw(self, N):
-        """
-        Draw from a gaussian, NOT truncated
-        """
-        s = np.random.randn(N, self.ndims)
-        s = s[np.abs(s[:, 0]) < 1.]
-        print(len(s))
-        print(s.min(), s.max())
-        return s
-
     def populate(self, old_r2, N=10000):
         """Populate a pool of latent points"""
         self.logger.debug("Populating proposal")
@@ -678,6 +668,15 @@ class AugmentedFlowProposal(RandomFlowProposal):
 
         self.augment_dim = self.model.augment_dim
         self.new_weights = False
+        self.total_dims = self.ndims + self.augment_dim
+
+    def draw(self, r2, N=1000, fuzz=1.0):
+        """Draw N samples from a region within the worst point"""
+        r = np.sqrt(r2)
+        samples = np.concatenate([[truncnorm.rvs(-r, r, size=N)] for _ in range(self.total_dims)], axis=0).T
+        # remove points outside bounds
+        samples = samples[np.where(np.sum(samples**2., axis=-1) < r2 )]
+        return samples
 
     def load_weights(self, weights_file):
         """Update the model from a weights file"""
@@ -687,20 +686,26 @@ class AugmentedFlowProposal(RandomFlowProposal):
         self.new_weights = True
         self.update_count += 1
 
-    def forward_pass(self, theta):
+    def forward_pass(self, theta, e=None):
         """Generate a corresponding augmented vector and pass through the model"""
+        # if now e is given, assume e = 0.
+        if e is None:
+            e = np.zeros([theta.shape[0], self.augment_dim])
+        assert theta.shape[0] == e.shape[0]
         theta_tensor = self.torch.Tensor(theta.astype(np.float32)).to(self.model.device)
-        e_tensor = self.torch.randn(theta_tensor.shape[0], self.augment_dim).to(self.model.device)
+        e_tensor = self.torch.Tensor(e.astype(np.float32)).to(self.model.device)
         y, z, log_J = self.model(theta_tensor, e_tensor, mode='forward')
         y = y.detach().cpu().numpy()
+        z = z.detach().cpu().numpy()
         log_J = log_J.detach().cpu().numpy()
-        return y, np.squeeze(log_J)
+        return np.concatenate([y, z], axis=1), np.squeeze(log_J)
 
-    def backward_pass(self, y):
+    def backward_pass(self, y, z):
         """A backwards pass from the model (latent -> real)"""
+        assert y.shape[0] == z.shape[0]
         # Notation here matches augmented flows paper
         y_tensor = self.torch.Tensor(y.astype(np.float32)).to(self.model.device)
-        z_tensor = self.torch.randn(y_tensor.shape[0], self.augment_dim).to(self.model.device)
+        z_tensor = self.torch.Tensor(z.astype(np.float32)).to(self.model.device)
         x, e, log_J = self.model(y_tensor, z_tensor, mode='generate')
         #x = x.detach().cpu().numpy()
         #log_J = log_J.detach().cpu().numpy()
@@ -731,26 +736,21 @@ class AugmentedFlowProposal(RandomFlowProposal):
         # only proceed if the draw has produced points
         # mainly an issue with drawing from the gaussian
         self.samples = []
-        self.z = np.empty([0, self.ndims])
         i = 0
         while len(self.samples) < N:
-            self.new_weights = False
-            if self.new_weights:
-                self.logger.debug('Using complete gaussian')
-                z = self.complete_draw(N)
-            else:
-                while True:
-                    z = self.draw(old_r2, N, fuzz=self.fuzz)
-                    if z.size:
-                        break
+            while True:
+                latent_samples = self.draw(old_r2, N, fuzz=self.fuzz)
+                if latent_samples.size:
+                    break
 
-            self.r2 = self.radius2(z)
+            self.r2 = self.radius2(latent_samples)
             # Only need x to compute log_p_x
             # see equation i
-            samples_tensor = self.backward_pass(z)
+            y = latent_samples[:, :self.ndims]
+            z = latent_samples[:, -self.augment_dim:]
+            samples_tensor = self.backward_pass(y, z)
             # get weights and samples as libe points
             samples, alpha, log_q = self.compute_weights(samples_tensor)
-            print(alpha.shape)
             fig = plt.figure()
             plt.hist([alpha, log_q], 20)
             fig.savefig(f'./outdir/proposal_test/alpha{i}.png')
@@ -765,15 +765,12 @@ class AugmentedFlowProposal(RandomFlowProposal):
             if len(indices):
                 # array of indices to take random draws from
                 self.samples += [samples[i] for i in indices]
-                self.z = np.concatenate([self.z, z[indices]], axis=0)
             self.logger.debug('Populating: {} / {} points accepted'.format(len(self.samples), N))
 
         self.samples = self.samples[:N]
-        self.z = self.z[:N]
         self.indices = np.random.permutation(len(self.samples))
         self.populated = True
         self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), N))
-
 
 
 class DefaultProposalCycle(ProposalCycle):
