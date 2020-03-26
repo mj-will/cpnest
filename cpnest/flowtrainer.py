@@ -72,6 +72,7 @@ def plot_samples(z, samples, output='./', filename='output_samples.png'):
                     ax[i, j].plot(z[:,j], z[:,i], marker=',', linestyle='')
     else:
         ax.hist(samples, int(np.sqrt(N)), histtype='step')
+
     plt.tight_layout()
     fig.savefig(output + filename)
     plt.close('all')
@@ -305,14 +306,13 @@ class FlowTrainer(Trainer):
         samples = np.array([p.values for p in payload[1]])
         self.logger.info("Starting training setup")
 
-        D, p_value = self._train_on_data(samples, plot=True, iteration=iteration)
+        self._train_on_data(samples, plot=True, iteration=iteration)
 
         self.logger.info("Training complete")
 
         # send weights and check whether to enable the flow
         if self.manager is not None:
-            if D >= 0.:      # 0 since flow is always used
-                self.manager.enable_flow.value = 1
+            self.manager.enable_flow.value = 1
             self.manager.trained.value = 1
             self.producer_pipe.send(self.weights_file)
             self.logger.info("Weights sent")
@@ -322,6 +322,8 @@ class FlowTrainer(Trainer):
         """
         Prep data and return dataloaders for training
         """
+        idx = np.random.permutation(samples.shape[0])
+        samples = samples[idx]
         if plot:
             self.logger.debug('Plotting inputs before normalisation')
             plot_inputs(samples, output=output, filename='input_pre_norm.png')
@@ -387,14 +389,6 @@ class FlowTrainer(Trainer):
 
         self.weights_file = block_outdir + 'model.pt'
 
-        if iteration is not None:
-            pass
-            # TODO: make this general?
-            #P_theta = 1. / 400.
-            #N_live = 5000
-            #prior_kl = (iteration / N_live) + np.log(P_theta)
-            #self.logger.debug(f"Prior portion of KL: {prior_kl}")
-
         for epoch in range(1, max_epochs + 1):
 
             loss = self._train(train_loader)
@@ -429,7 +423,25 @@ class FlowTrainer(Trainer):
         z, output = self.sample(N=10000)
         np.save(block_outdir + 'samples.npy', [z, output])
 
+
+        data_latent = np.empty([0, self.n_inputs])
+        for idx, data in enumerate(val_loader):
+            if isinstance(data, list):
+                if len(data) > 1:
+                    cond_data = data[1].float()
+                    cond_data = cond_data.to(self.device)
+                else:
+                    cond_data = None
+                data = data[0]
+            data = data.to(self.device)
+            with torch.no_grad():
+                val = self.model(data, cond_data)
+                val = val[0]
+                val = val.detach().cpu().numpy()
+                data_latent = np.concatenate([data_latent, val], axis=0)
+
         if plot:
+            plot_inputs(data_latent, output=block_outdir, filename='transformed_input_samples.png')
             self.logger.info("Plotting output")
             plot_loss(epoch, history, output=block_outdir)
             plot_samples(z, output, output=block_outdir)
@@ -440,13 +452,7 @@ class FlowTrainer(Trainer):
             # TODO: fix plotting for N dimensions
             #plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
 
-        # compute mean KS
-        # TDOD: remove this?
-        D, p_value = self.compute_mean_ks(samples, output)
-        self.logger.info(f"Computed KS - D: {D}, p: {p_value}")
-        return D, p_value
-
-    def _train(self, loader, noise_scale=0.01):
+    def _train(self, loader, noise_scale=0.):
         """
         Loop over the data and update the weights
         """
@@ -530,19 +536,6 @@ class FlowTrainer(Trainer):
         self.model.load_state_dict(torch.load(weights_file))
         self.model.eval()
 
-    def compute_mean_ks(self, samples, output):
-        """
-        Compute the KS over each dimension and take the mean
-        """
-        samples = np.array(samples)
-        output = np.array(output)
-        n_dims = samples.shape[-1]
-        D_values = np.empty(n_dims,)
-        p_values = np.empty(n_dims,)
-        for i, t, p in zip(range(n_dims), samples.T, output.T):
-            D_values[i], p_values[i] = stats.ks_2samp(*[t, p])
-        return D_values.mean(), p_values.mean()
-
 
 class AugmentedFlowTrainer(FlowTrainer):
     """
@@ -561,6 +554,8 @@ class AugmentedFlowTrainer(FlowTrainer):
         """
         Prep data and return dataloaders for training
         """
+        idx = np.random.permutation(samples.shape[0])
+        samples = samples[idx]
         if plot:
             plot_inputs(samples, output=output, filename='input_pre_norm.png')
 
