@@ -718,22 +718,6 @@ class AugmentedSequential(nn.Sequential):
         # get log p(x, e)
         for i,f in enumerate(feature):
             e = torch.Tensor(K, e_dim).normal_().to(feature.device)
-            # need to pass the same feature K times (for each e)
-            f_repeated = f * torch.ones(K, f.size(0), device=feature.device)
-            log_p_xe = self.log_p_xe(f_repeated, e)
-            # compute sum of log probs
-            lpx = -np.log(K) + torch.logsumexp(log_p_xe, (0))
-            log_p_x[i] = lpx
-        return log_p_x
-
-    def log_p_x_weighted(self, feature, e_dim, K=1000):
-        """
-        Calculate the lower bound of the marginalised log probability p(x)
-        """
-        log_p_x = torch.zeros(feature.size(0), 1, device=feature.device)
-        # get log p(x, e)
-        for i,f in enumerate(feature):
-            e = torch.Tensor(K, e_dim).normal_().to(feature.device)
             log_q = self.log_N(e)
             # need to pass the same feature K times (for each e)
             f_repeated = f * torch.ones(K, f.size(0), device=feature.device)
