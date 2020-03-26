@@ -18,6 +18,8 @@ from cpnest.parameter import LivePoint
 from cpnest.flowtrainer import plot_samples
 from cpnest.flows import setup_model, setup_augmented_model
 
+import torch
+
 def sigmoid(x):
    return 1. / (1. + np.exp(-x))
 
@@ -314,7 +316,7 @@ class FlowProposal(EnsembleProposal):
     torch = __import__('torch')
     log_J = 0.0
 
-    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, proposal_size=10000, fuzz=1.0, setup=None):
+    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, proposal_size=10000, fuzz=1.0, setup=None, normalise=True):
 
         super(FlowProposal, self).__init__()
         print(model_dict)
@@ -339,7 +341,7 @@ class FlowProposal(EnsembleProposal):
         self.prior = self.gaussian_prior
 
         self.log_prior = log_prior
-        if prior_range is not None:
+        if prior_range is not None and normalise:
             self.setup_normalisation(prior_range)
         self.previous_sample = None
 
@@ -667,7 +669,6 @@ class AugmentedFlowProposal(RandomFlowProposal):
         super(AugmentedFlowProposal, self).__init__(**kwargs)
 
         self.augment_dim = self.model.augment_dim
-        self.new_weights = False
         self.total_dims = self.ndims + self.augment_dim
 
     def draw(self, r2, N=1000, fuzz=1.0):
@@ -683,7 +684,6 @@ class AugmentedFlowProposal(RandomFlowProposal):
         self.model.load_state_dict(self.torch.load(weights_file))
         self.model.eval()
         self.populated = False
-        self.new_weights = True
         self.update_count += 1
 
     def forward_pass(self, theta, e=None):
@@ -707,9 +707,17 @@ class AugmentedFlowProposal(RandomFlowProposal):
         y_tensor = self.torch.Tensor(y.astype(np.float32)).to(self.model.device)
         z_tensor = self.torch.Tensor(z.astype(np.float32)).to(self.model.device)
         x, e, log_J = self.model(y_tensor, z_tensor, mode='generate')
-        #x = x.detach().cpu().numpy()
-        #log_J = log_J.detach().cpu().numpy()
-        return x#, np.squeeze(log_J)
+        return x
+
+    def check_bounds(self, theta):
+        """"Remove samples outside of prior bounds"""
+        # find below mind
+        less = np.any(theta < self.bounds[0, :], axis=1)[:, np.newaxis]
+        # find above max
+        greater  = np.any(theta > self.bounds[1, :], axis=1)[:, np.newaxis]
+        # accept only false for both
+        accept = ~np.any(np.concatenate([less, greater], axis=1), axis=1)
+        return accept
 
     def compute_weights(self, theta):
         """
@@ -717,11 +725,18 @@ class AugmentedFlowProposal(RandomFlowProposal):
 
         Note: theta must be a tensor
         """
-        log_q = self.model.log_p_x(theta, self.augment_dim, K=1000)
+        with torch.no_grad():
+                log_q = self.model.log_p_x(theta, self.augment_dim, K=500)
         log_q = log_q.detach().cpu().numpy().flatten()
+        # only use those with log_q greater than log_p_x of the old point
+        accept = log_q > self.old_log_p_x
         # convert theta to live points for prior
         theta = theta.detach().cpu().numpy()
         theta = self.rescale_output(theta)
+        # get the accepted points
+        if False:
+            theta = theta[accept]
+            log_q = log_q[accept]
         theta = [self.make_live_point(t) for t in theta]
         log_p = np.array([self.log_prior(t) for t in theta])
         # compute log weight
@@ -736,7 +751,8 @@ class AugmentedFlowProposal(RandomFlowProposal):
         # only proceed if the draw has produced points
         # mainly an issue with drawing from the gaussian
         self.samples = []
-        i = 0
+        j = 0
+        self.z = np.empty([0, self.ndims])
         while len(self.samples) < N:
             while True:
                 latent_samples = self.draw(old_r2, N, fuzz=self.fuzz)
@@ -750,28 +766,67 @@ class AugmentedFlowProposal(RandomFlowProposal):
             z = latent_samples[:, -self.augment_dim:]
             samples_tensor = self.backward_pass(y, z)
             # get weights and samples as libe points
+            self.logger.debug('Computing weights')
             samples, alpha, log_q = self.compute_weights(samples_tensor)
-            fig = plt.figure()
-            plt.hist([alpha, log_q], 20)
-            fig.savefig(f'./outdir/proposal_test/alpha{i}.png')
-            plt.close(fig)
-            fig = plt.figure()
-            plt.hist(samples_tensor.numpy())
-            fig.savefig(f'./outdir/proposal_test/samples{i}.png')
-            i += 1
             # rejection sampling
+            self.logger.debug('Rejection sampling')
             u = np.log(np.random.rand(len(samples)))
             indices = np.where((alpha - u) >= 0)[0]
+            self.z = np.concatenate([self.z, y[indices]], axis=0)
             if len(indices):
                 # array of indices to take random draws from
                 self.samples += [samples[i] for i in indices]
             self.logger.debug('Populating: {} / {} points accepted'.format(len(self.samples), N))
 
+            samples_np = np.array([samples[i].values for i in indices])
+            print(self.output)
+            fig = plt.figure()
+            plt.plot(samples_np[:,0], samples_np[:,1], ',')
+            fig.savefig(self.output + f'proposal_{self.count}_{j}.png')
+            plt.close(fig)
+            j += 1
+
         self.samples = self.samples[:N]
+        self.z = self.z[:N]
         self.indices = np.random.permutation(len(self.samples))
         self.populated = True
         self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), N))
 
+    def get_sample(self, old_sample):
+        """Get a new sample within the contour defined by the old sample"""
+        count = 0
+        if not self.populated:
+            while not self.populated:
+                # Populate if unpopulated
+                # This requires pass through the flows
+                old_sample_np = self.unpack_live_point(old_sample) # unpack LivePoint
+                old_sample_np = self.rescale_input(old_sample_np)[np.newaxis, :]  # rescale (-1, 1)
+                old_z, _ = self.forward_pass(old_sample_np)        # to latent space
+                old_log_p_x = self.model.log_p_x(
+                        torch.from_numpy(old_sample_np.astype('float32')).to(self.model.device), self.augment_dim)
+                self.old_log_p_x = old_log_p_x.detach().cpu().numpy()[0]
+                print(self.old_log_p_x)
+                old_r2 = self.radius2(old_z)                    # contour
+                self.populate(old_r2, N=self.proposal_size)         # points within contour
+
+                # get samples with index given by first entry in possible indices
+                count += 1
+                if count == 20:
+                    self.logger.error('Could not populate proposal')
+                    break
+
+            self.save_samples(self.z, self.samples, self.indices)
+            samples = np.array([s.values for s in self.samples])
+            plot_samples(self.z, samples, output=self.output, filename='samples_{}.png'.format(self.count-1))
+
+        # new sample is drawn randomly from proposed points
+        new_sample = self.samples[self.indices[0]]
+        self.indices = self.indices[1:]
+        if not self.indices.size:
+            self.populated = False
+            self.logger.debug('Pool of points is empty')
+        # make live point and return
+        return new_sample
 
 class DefaultProposalCycle(ProposalCycle):
     """
