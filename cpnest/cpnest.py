@@ -165,7 +165,7 @@ class CPNest(object):
         # instaniate the neural network if used
         if self.trainable:
             if not os.path.exists(resume_file) or resume == False:
-                trainer = trainer_class(trainer_dict,
+                trainer = trainer_class(trainer_dict=trainer_dict,
                         manager=self.manager,
                         output=output)
             else:
