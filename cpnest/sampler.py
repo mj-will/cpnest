@@ -13,6 +13,7 @@ from .proposal import DefaultProposalCycle
 from . import proposal
 from .cpnest import CheckPoint, RunManager
 from .cpthread import CPThread, CPCommand
+from .flows import setup_augmented_model
 from tqdm import tqdm
 from operator import attrgetter
 
@@ -302,10 +303,15 @@ class Sampler(CPThread):
                         raise ValueError('Using flows with logit but logit set to false!')
                     else:
                         Proposal = LogitFlowProposal
+                    setup = None
                 elif 'aug' in self.trainer_type:
+                    self.logger.debug('Using AugmentedFlowProposal')
                     Proposal = AugmentedFlowProposal
+                    setup = setup_augmented_model
                 else:
+                    self.logger.debug('Using RandomFlowProposal')
                     Proposal = RandomFlowProposal
+                    setup = None
 
                 self.flow_proposal = Proposal(
                         model_dict=self.trainer_dict["model_dict"],
@@ -315,16 +321,21 @@ class Sampler(CPThread):
                         device=device,
                         proposal_size=self.trainer_dict["proposal_size"],
                         fuzz=self.trainer_dict["fuzz"],
-                        output=self.output + "proposal_{}/".format(os.getpid()))
+                        output=self.output + "proposal_{}/".format(os.getpid()),
+                        setup=setup,
+                        normalise=True)
                 self.trainer_model = self.flow_proposal
                 self.default_proposal = self.proposal
                 self.counter = 0
                 self.accepted = 0
 
+                if 'aug' in self.trainer_type:
+                    self.flow_proposal.bounds=self.trainer_dict["bounds"]
+
                 self.naive_proposal = NaiveProposal(
                         names=self.model.names,
                         log_prior=self.model.log_prior,
-                        bounds=self.trainer_dict["priors"])
+                        bounds=self.trainer_dict["bounds"])
             else:
                 self.flow_proposal = None
                 self.default_proposal = None
