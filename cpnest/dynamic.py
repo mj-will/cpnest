@@ -45,20 +45,20 @@ class DyNest(object):
         if Nthreads is None:
             Nthreads = mp.cpu_count()
         print('Running with {0} parallel threads'.format(Nthreads))
-        from .sampler import Sampler
+        from .sampler import FlowSampler, Sampler
         self.dnest = DynamicNestedSampler(usermodel, output=output, verbose=verbose, seed=seed, Ninit=Ninit)
-        
+
         for i in range(Nthreads):
             print('Initialised sampler')
-            sampler = Sampler(usermodel,maxmcmc,verbose=verbose,output=output,poolsize=Poolsize,seed=self.seed+i )
+            sampler = FlowSampler(usermodel, maxmcmc, verbose=verbose,output=output,poolsize=Poolsize,seed=self.seed+i )
             consumer, producer = mp.Pipe(duplex=True)
             p = mp.Process(target=sampler.produce_sample, args=(producer, self.dnest.logLmin, ))
             print('Connecting sampler {0}'.format(i))
             self.dnest.connect_sampler(consumer)
             #producer.close()
             self.process_pool.append(p)
-            
-            
+
+
     def run(self):
         """
         Run the sampler
@@ -70,7 +70,7 @@ class DyNest(object):
         for each in self.process_pool:
             print('Starting sampler {0}'.format(each))
             each.start()
-        
+
         self.dnest.nested_sampling_loop()
 
         for each in self.process_pool:
@@ -136,14 +136,15 @@ class DynamicNestedSampler(NestedSampler):
 
     def reset(self):
         self.nested_intervals=Interval(-np.inf, np.inf)
-        
+
         samples = []
-        
+
         for i in range(self.Ninit):
             tmp = self.model.new_point()
             tmp.logL = self.model.log_likelihood(tmp)
+            if tmp.logL > self.logLmax: self.logLmax = tmp.logL
             samples.append(tmp)
-        
+
         worst = np.argmin([p.logL for p in samples])
         self.nested_intervals.insert_point(samples[worst].logL, data=samples[worst])
         self.nested_intervals.find(-np.inf).n+=1
@@ -200,7 +201,7 @@ class DynamicNestedSampler(NestedSampler):
                     data = r.recv()
                 except (EOFError,ConnectionResetError,BrokenPipeError,StopIteration):
                     r.close()
-                    self.pipes.remove(r)                    
+                    self.pipes.remove(r)
                 else:
                     if data is None:
                         r.close()
@@ -214,18 +215,18 @@ class DynamicNestedSampler(NestedSampler):
         """
         # send all live points to the samplers for start
         #self.push_points(self.params)
-        
+
         if self.verbose:
             sys.stderr.write("\n")
             sys.stderr.flush()
-        
+
         # Run main loop
         logLmin=-np.inf
         while not self.done():
             self.evolve_classic(logLmin=logLmin)
             logLmin = self.params[self.iteration].logL
             self.iteration+=1
-            
+
 
 	    # Signal worker threads to exit
         self.logLmin.value = np.inf
@@ -236,7 +237,7 @@ class DynamicNestedSampler(NestedSampler):
                 print(__name__,'Recived ',str(x))
             except StopIteration:
                 break
-            
+
 
 
     def evolve_classic(self, logLmin=-np.inf):
@@ -247,7 +248,7 @@ class DynamicNestedSampler(NestedSampler):
         # Find next point above logLmin
         i = self.nested_intervals.find(logLmin)
         oldpoint = self.nested_intervals.get_data(i.b)
-        self.logLmin.value = np.float128(oldpoint.logL)        
+        self.logLmin.value = np.float128(oldpoint.logL)
         self.push_points([oldpoint])
         try:
             data = next(self.recv_point())
@@ -258,9 +259,8 @@ class DynamicNestedSampler(NestedSampler):
                 if newpoint.logL > self.logLmax: self.logLmax = newpoint.logL
         except StopIteration:
             self.blocked=True
-        
+
         logZ=self.nested_intervals.logZ()
-        
         self.condition = logaddexp(logZ,self.logLmax - self.iteration/(float(self.Ninit))) - logZ
 
 
@@ -300,13 +300,13 @@ class Interval(object):
         self.data={}
         if data is not None:
             self.data=data
-    
+
     def logt(self):
         if self.n==0:
             return 0.0
         else:
             return np.log(self.n-1)-np.log(self.n)
-    
+
     def readout(self):
         """
         Returns logX,logL
@@ -317,7 +317,7 @@ class Interval(object):
             logX.append(logX[-1]+i.logt())
             logL.append(i.a)
         return (np.array(logX),np.array(logL))
-    
+
     def logZ(self):
         """
         Return integral
@@ -337,7 +337,7 @@ class Interval(object):
                     return c.get_data(key)
         else:
             return self.data.get(key)
-    
+
     def integrate(self,func):
         """
         Integrate the function over the interval
@@ -345,24 +345,24 @@ class Interval(object):
         return np.sum(
             [ 0.5*(func(i.b)+func(i.a))*(i.logX()) for i in self]
             )
-        
+
     def __contains__(self,x):
         if isinstance(x,Interval):
             return self.a <= x.a <= x.b <= self.b
         return self.a <= x <= self.b
-    
+
     def __str__(self):
         return "({0}, {1}): n={2}".format(self.a,self.b,self.n)
-    
+
     def leaves(self):
         if self.children is not None:
             yield self
         else:
             for c in self.children:
                 yield c.leaves()
-    
+
     def print_tree(self,pref=''):
-        
+
         if self.children:
             print(pref+str(self))
             self.children[0].print_tree(pref=pref+u'|')
@@ -379,7 +379,7 @@ class Interval(object):
 
     def __iter__(self):
         return next(self)
-    
+
     def __next__(self):
         """
         Iterate over intervals
@@ -415,7 +415,7 @@ class Interval(object):
                 if x in c: return c.find(x)
         else:
             return self
-    
+
     def split(self,x,data=None):
         """
         Split the interval at x, recording data if given
@@ -426,7 +426,7 @@ class Interval(object):
             return [Interval(self.a,x,n=self.n,parent=self,data=ldata),Interval(x,self.b,n=self.n,parent=self,data=rdata)]
         else:
             return [self]
-    
+
     def insert_point(self, x, data=None):
         """
         Insert a point into this interval tree
@@ -453,7 +453,7 @@ class Interval(object):
         for cur in self:
             if cur in i:
                 cur.n+=1
-    
+
     def __add__(self,other):
         if self.b == other.a: return Interval(self.a,other.b)
         elif self.a == other.b : return Interval(other.a,self.b)

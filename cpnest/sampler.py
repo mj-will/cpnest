@@ -15,27 +15,27 @@ class Sampler(object):
     """
     Sampler class.
     Initialisation arguments:
-    
+
     usermodel:
     user defined model to sample
-    
+
     maxmcmc:
     maximum number of mcmc steps to be used in the sampler
-    
+
     verbose:
     display debug information on screen
     default: False
-    
+
     poolsize:
     number of objects for the affine invariant sampling
     default: 1000
-    
+
     seed:
     Random seed
-    
+
     proposal:
     JumpProposal class to use (defaults to proposals.DefaultProposalCycle)
-    
+
     """
 
     def __init__(self,usermodel, maxmcmc, seed=None, output=None, verbose=False, poolsize=1000, proposal=None):
@@ -62,8 +62,8 @@ class Sampler(object):
         self.output = output
         self.samples = [] # the list of samples from the mcmc chain
         self.ACLs = [] # the history of the ACL of the chain, will be used to thin the output
-        self.reset()
-        
+        #self.reset()
+
     def reset(self):
         """
         Initialise the sampler
@@ -82,7 +82,7 @@ class Sampler(object):
         self.proposal.set_ensemble(self.evolution_points)
 
         self.metropolis_hastings(-np.inf)
-        
+
         if self.verbose > 2: sys.stderr.write("\n")
         if self.verbose > 2: sys.stderr.write("Initial estimated ACL = {0:d}\n".format(self.Nmcmc))
         self.proposal.set_ensemble(self.evolution_points)
@@ -104,7 +104,7 @@ class Sampler(object):
             self.Nmcmc_exact = (1.0 + 1.0/tau)*self.Nmcmc_exact
         else:
             self.Nmcmc_exact = (1.0 - 1.0/tau)*self.Nmcmc_exact + (safety/tau)*(2.0/self.sub_acceptance - 1.0)
-        
+
         self.Nmcmc_exact = float(min(self.Nmcmc_exact,self.maxmcmc))
         self.Nmcmc = max(safety,int(self.Nmcmc_exact))
         self.ACLs.append(self.Nmcmc)
@@ -120,7 +120,7 @@ class Sampler(object):
           self.reset()
 
         self.counter=0
-        
+
         while not self.exit:
             if logLmin.value==np.inf:
                 break
@@ -194,7 +194,7 @@ class Sampler(object):
                         sub_accepted+=1
                 if (sub_counter > self.Nmcmc and sub_accepted > 0 ) or sub_counter > self.maxmcmc:
                     break
-        
+
             # Put sample back in the stack
             self.evolution_points.append(oldparam)
             if self.verbose >=3: self.samples.append(oldparam)
@@ -207,3 +207,131 @@ class Sampler(object):
                 yield (float(self.sub_acceptance),sub_counter,oldparam)
 
         self.acceptance = float(accepted)/float(counter)
+
+
+class FlowSampler(Sampler):
+
+    def __init__(self, usermodel, max_rej, trainer_dict=None, **kwargs):
+        super(FlowSampler, self).__init__(usermodel, max_rej, **kwargs)
+        self.trainer_initialised = False
+        self.trainer_dict = trainer_dict
+        self.model = usermodel   # TODO: fix
+        self.max_rs = None       # limit for rejcetion sampling
+        self.max_rej = max_rej
+
+    def intialise_proposals(self):
+        """
+        Intialise the proposals
+        """
+        if not self.trainer_initialised:
+            from .proposal import NaiveProposal, RandomFlowProposal
+            try:
+                device = self.trainer_dict["proposal_device"]
+            except:
+                device='cpu'
+
+            #self.flow_proposal = RandomFlowProposal(
+            #        model_dict=self.trainer_dict["model_dict"],
+            #        names=self.model.names,
+            #        log_prior=self.model.log_prior,
+            #        prior_range=self.trainer_dict["priors"],
+            #        device=device,
+            #        proposal_size=self.trainer_dict["proposal_size"],
+            #        fuzz=self.trainer_dict["fuzz"],
+            #        output=self.output + "proposal_{}/".format(os.getpid()),
+            #        setup=None,
+            #        normalise=True)
+
+            self.naive_proposal = NaiveProposal(
+                    names=self.model.names,
+                    log_prior=self.model.log_prior,
+                    bounds=np.array(self.model.bounds).T)
+
+            self.proposal = self.naive_proposal
+
+
+    def reset(self):
+        """
+        Initialise the sampler
+        """
+        self.intialise_proposals()
+        np.random.seed(seed=self.seed)
+        self.exit=False
+        self.intialised=True
+
+    def yield_sample(self, logLmin, oldparam):
+        """
+        Produce a sample
+        """
+
+        logp_old = self.model.log_prior(oldparam)
+        sub_counter = 0
+        sub_accepted = 0
+        while True:
+                sub_counter += 1
+                newparam = self.proposal.get_sample(oldparam.copy())
+                newparam.logP = self.model.log_prior(newparam)
+
+                if newparam.logP != -np.inf:
+                    newparam.logL = self.model.log_likelihood(newparam)
+                    if newparam.logL > logLmin:
+                        #self.logLmax.value = max(self.logLmax.value, newparam.logL)
+                        oldparam = newparam.copy()
+                        logp_old = newparam.logP
+                        sub_accepted+=1
+                        break
+                if sub_counter >= self.max_rej:
+                    break
+
+        acceptance = sub_accepted / sub_counter
+
+        yield acceptance, sub_counter, oldparam
+
+
+    def produce_sample(self, producer_pipe, logLmin ):
+        """
+        main loop that generates samples and puts them in the queue for the nested sampler object
+        """
+
+        if not self.initialised:
+          self.reset()
+
+        self.counter=0
+
+        # after reaching the maximum number of samples drawn using normal
+        # rejection sampling switch to the flow.
+        # It will automatically pause the sampling loop and start training
+        if self.counter == self.max_rs:
+            pass
+            #self.proposal = self.flow_proposal
+
+        while not self.exit:
+            if logLmin.value==np.inf:
+                break
+
+
+            while producer_pipe.poll():
+                try:
+                    data = producer_pipe.recv()
+                    print(__name__,  'Received ',str(data))
+                    if data is None:
+                        print(__name__, 'Sampler received None')
+                        self.exit=True
+                        break
+                    else:
+                        pass
+
+                except (EOFError,ConnectionResetError,BrokenPipeError):
+                    p.close()
+                    self.exit=True
+                    break
+            try:
+                (acceptance,Nmcmc,outParam) = next(self.yield_sample(logLmin.value, data))
+                # Send the sample to the Nested Sampler
+                if not self.exit: producer_pipe.send((acceptance,Nmcmc,outParam))
+            except StopIteration:
+                self.exit=True
+                break
+
+            # Update the ensemble every now and again
+            self.counter += 1

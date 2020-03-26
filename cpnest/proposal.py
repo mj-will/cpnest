@@ -188,6 +188,52 @@ class DefaultProposalCycle(ProposalCycle):
         weights = [1.0,1.0,3.0,10.0]
         super(DefaultProposalCycle,self).__init__(proposals,weights,*args,**kwargs)
 
+class NaiveProposal(Proposal):
+
+    def __init__(self, names=None, log_prior=None, bounds=None, N=1000, **kwargs):
+        super(NaiveProposal, self).__init__(**kwargs)
+
+        self.dims = len(names)
+        self.names = names
+        self.log_prior = log_prior
+        self.bounds = bounds
+        self.prior_denom = np.ptp(bounds)
+        self.populated = False
+        self.N = N
+
+    def make_live_point(self, theta):
+        """Create an instance of LivePoint with the given inputs"""
+        return LivePoint(self.names, d=theta)
+
+    def log_proposal(self, theta):
+        """Proposal probability"""
+        return - np.log(self.prior_denom)
+
+    def get_weights(self, theta):
+        """Get weights for the samples"""
+        log_q = np.array([self.log_proposal(t) for t in theta])
+        log_p = np.array([self.log_prior(t) for t in theta])
+        log_w = log_p - log_q
+        log_w -= np.max(log_w)
+        return log_w
+
+    def get_sample(self, old_sample):
+        """Propose a new sample"""
+        if not self.populated:
+            theta = np.random.uniform(self.bounds[0], self.bounds[1], [self.N, self.dims])
+            theta = [self.make_live_point(t) for t in theta]
+            log_w = self.get_weights(theta)
+            # rejection sampling
+            log_u = np.log(np.random.rand(self.N))
+            indices = np.where((log_w - log_u) >= 0)[0]
+            self.samples = [theta[i] for i in indices]
+            self.populated = True
+        # get new sample
+        new_sample = self.samples.pop()
+        if not self.samples:
+            self.populated = False
+        return new_sample
+
 
 class FlowProposal(EnsembleProposal):
 
