@@ -323,7 +323,8 @@ class Sampler(CPThread):
                         fuzz=self.trainer_dict["fuzz"],
                         output=self.output + "proposal_{}/".format(os.getpid()),
                         setup=setup,
-                        normalise=True)
+                        normalise=True,
+                        truncate=self.trainer_dict["truncate_proposal"])
                 self.trainer_model = self.flow_proposal
                 self.default_proposal = self.proposal
                 self.counter = 0

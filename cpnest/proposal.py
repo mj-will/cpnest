@@ -316,7 +316,7 @@ class FlowProposal(EnsembleProposal):
     torch = __import__('torch')
     log_J = 0.0
 
-    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, proposal_size=10000, fuzz=1.0, setup=None, normalise=True):
+    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, proposal_size=10000, fuzz=1.0, setup=None, normalise=True, **kwargs):
 
         super(FlowProposal, self).__init__()
         print(model_dict)
@@ -665,18 +665,21 @@ class AugmentedFlowProposal(RandomFlowProposal):
 
     setup_model = setup_augmented_model
 
-    def __init__(self, **kwargs):
+    def __init__(self, truncate=False, **kwargs):
         super(AugmentedFlowProposal, self).__init__(**kwargs)
 
         self.augment_dim = self.model.augment_dim
         self.total_dims = self.ndims + self.augment_dim
+        self.logger.debug(f'Total dimensions: {self.total_dims}')
+        self.draw = self.draw_aug
+        self.truncate = truncate
 
-    def draw(self, r2, N=1000, fuzz=1.0):
+    def draw_aug(self, r2, N=1000, fuzz=1.0):
         """Draw N samples from a region within the worst point"""
         r = np.sqrt(r2)
-        samples = np.concatenate([[truncnorm.rvs(-r, r, size=N)] for _ in range(self.total_dims)], axis=0).T
+        samples = np.array([truncnorm.rvs(-r, r, size=N) for _ in range(self.total_dims)]).T
         # remove points outside bounds
-        samples = samples[np.where(np.sum(samples**2., axis=-1) < r2 )]
+        samples = samples[np.sqrt(np.sum(samples**2., axis=1)) < r ]
         return samples
 
     def load_weights(self, weights_file):
@@ -728,13 +731,13 @@ class AugmentedFlowProposal(RandomFlowProposal):
         with torch.no_grad():
                 log_q = self.model.log_p_x(theta, self.augment_dim, K=500)
         log_q = log_q.detach().cpu().numpy().flatten()
-        # only use those with log_q greater than log_p_x of the old point
-        accept = log_q > self.old_log_p_x
         # convert theta to live points for prior
         theta = theta.detach().cpu().numpy()
         theta = self.rescale_output(theta)
         # get the accepted points
-        if False:
+        if self.truncate:
+            # only use those with log_q greater than log_p_x of the old point
+            accept = log_q > self.old_log_p_x
             theta = theta[accept]
             log_q = log_q[accept]
         theta = [self.make_live_point(t) for t in theta]
@@ -751,15 +754,15 @@ class AugmentedFlowProposal(RandomFlowProposal):
         # only proceed if the draw has produced points
         # mainly an issue with drawing from the gaussian
         self.samples = []
-        j = 0
         self.z = np.empty([0, self.ndims])
+        self.logger.debug(f'Radius for population: {old_r2}')
         while len(self.samples) < N:
             while True:
                 latent_samples = self.draw(old_r2, N, fuzz=self.fuzz)
                 if latent_samples.size:
                     break
 
-            self.r2 = self.radius2(latent_samples)
+            self.r2 = self.radius2(latent_samples)   # not used
             # Only need x to compute log_p_x
             # see equation i
             y = latent_samples[:, :self.ndims]
@@ -767,11 +770,11 @@ class AugmentedFlowProposal(RandomFlowProposal):
             samples_tensor = self.backward_pass(y, z)
             # get weights and samples as libe points
             self.logger.debug('Computing weights')
-            samples, alpha, log_q = self.compute_weights(samples_tensor)
+            samples, log_w, log_q = self.compute_weights(samples_tensor)
             # rejection sampling
             self.logger.debug('Rejection sampling')
-            u = np.log(np.random.rand(len(samples)))
-            indices = np.where((alpha - u) >= 0)[0]
+            log_u = np.log(np.random.rand(len(samples)))
+            indices = np.where((log_w - log_u) >= 0)[0]
             self.z = np.concatenate([self.z, y[indices]], axis=0)
             if len(indices):
                 # array of indices to take random draws from
@@ -779,12 +782,6 @@ class AugmentedFlowProposal(RandomFlowProposal):
             self.logger.debug('Populating: {} / {} points accepted'.format(len(self.samples), N))
 
             samples_np = np.array([samples[i].values for i in indices])
-            print(self.output)
-            fig = plt.figure()
-            plt.plot(samples_np[:,0], samples_np[:,1], ',')
-            fig.savefig(self.output + f'proposal_{self.count}_{j}.png')
-            plt.close(fig)
-            j += 1
 
         self.samples = self.samples[:N]
         self.z = self.z[:N]
@@ -805,7 +802,6 @@ class AugmentedFlowProposal(RandomFlowProposal):
                 old_log_p_x = self.model.log_p_x(
                         torch.from_numpy(old_sample_np.astype('float32')).to(self.model.device), self.augment_dim)
                 self.old_log_p_x = old_log_p_x.detach().cpu().numpy()[0]
-                print(self.old_log_p_x)
                 old_r2 = self.radius2(old_z)                    # contour
                 self.populate(old_r2, N=self.proposal_size)         # points within contour
 
