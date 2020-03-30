@@ -79,7 +79,8 @@ def plot_flows(model, n_inputs, N=1000, inputs=None, cond_inputs=None, mode='inv
 
 
 
-def setup_model(n_inputs=None,  n_conditional_inputs=None, n_neurons=128, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu', **kwargs):
+def setup_model(n_inputs=None,  n_conditional_inputs=None, augment_dim=None,
+        n_neurons=128, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu', **kwargs):
     """"
     Setup the model
     """
@@ -90,28 +91,39 @@ def setup_model(n_inputs=None,  n_conditional_inputs=None, n_neurons=128, n_laye
     if type(device) == str:
         device = torch.device(device)
 
-    layers = []
+    blocks = []
     ftype = ftype.lower()
     if ftype == 'realnvp':
-        mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
-        for _ in range(n_blocks):
-            layers += [CouplingLayer(n_inputs, n_neurons, mask,
-                                     num_cond_inputs=n_conditional_inputs,
-                                     num_layers=n_layers),
-                       BatchNormFlow(n_inputs)]
-            #layers += [MADE(n_inputs, n_neurons)]
-            mask = 1 - mask
-    elif ftype == 'maf':
-        for _ in range(n_blocks):
-            layers += [
-                MADE(n_inputs, n_neurons, n_conditional_inputs),
-                BatchNormFlow(n_inputs),
-                Reverse(n_inputs)
-            ]
-    else:
-        raise ValueError('Unknown flow type, choose from RealNPV or MAF')
+        if augment_dim is None:
+            mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
+            for _ in range(n_blocks):
+                blocks += [CouplingLayer(n_inputs, n_neurons, mask,
+                                         num_cond_inputs=n_conditional_inputs,
+                                         num_layers=n_layers),
+                           BatchNormFlow(n_inputs)]
+                mask = 1 - mask
+            model = FlowSequential(*blocks)
+        else:
+            for n in range(n_blocks):
+                blocks += [AugmentedBlock(n_inputs, augment_dim, n_layers, n_neurons)]
 
-    model = FlowSequential(*layers)
+            model = AugmentedSequential(*blocks).to(device)
+            model.augment_dim = augment_dim
+
+    elif ftype == 'maf':
+        if augment_dim is None:
+            for _ in range(n_blocks):
+                blocks += [
+                    MADE(n_inputs, n_neurons, n_conditional_inputs),
+                    BatchNormFlow(n_inputs),
+                    Reverse(n_inputs)
+                ]
+            model = FlowSequential(*blocks)
+        else:
+            raise RuntimeError('Augmented flows not supported for MAF')
+    else:
+        raise ValueError('Unknown flow type, choose from RealNVP or MAF')
+
     model.to(device)
     model.device = device
     return model
@@ -728,31 +740,3 @@ class AugmentedSequential(nn.Sequential):
             lpx = -np.log(K) + torch.logsumexp(log_p_xe - log_q, (0))
             log_p_x[i] = lpx
         return log_p_x
-
-
-def setup_augmented_model(n_inputs=None,  augment_dim=None, n_conditional_inputs=None, n_neurons=32, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu', **kwargs):
-    """"
-    Setup the model with augmented flows
-    """
-    if device is None:
-        raise ValueError("Must provided a device or a string for a device")
-    if type(device) == str:
-        device = torch.device(device)
-
-    if n_conditional_inputs is not None:
-        raise NotImplementedError('Augmented flows are not implemented for conditional inputs')
-
-    layers = []
-    ftype = ftype.lower()
-    if ftype == 'realnvp':
-        blocks = []
-        for n in range(n_blocks):
-            blocks += [AugmentedBlock(n_inputs, augment_dim, n_layers, n_neurons)]
-    else:
-        raise ValueError('Unknown flow type, choose from RealNVP')
-
-    model = AugmentedSequential(*blocks).to(device)
-    model.to(device)
-    model.augment_dim = augment_dim
-    model.device = device
-    return model

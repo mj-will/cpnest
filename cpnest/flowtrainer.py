@@ -1,5 +1,3 @@
-from __future__ import division, print_function
-
 import six
 import os
 import time
@@ -17,14 +15,51 @@ import hdbscan
 import matplotlib.pyplot as plt
 
 from .trainer import Trainer
-from .flows import CouplingLayer, BatchNormFlow, FlowSequential, MADE, setup_model, setup_augmented_model
+from .flows import BatchNormFlow, setup_model
 from .plot import plot_corner_contour
 
+def update_trainer_dict(d):
+    """
+    Update the default dictionary for a trainer
+    """
+    default_model = dict(n_inputs=None, n_neurons=32, n_blocks=4, n_layers=2,
+            augment_dim=None, ftype='RealNVP')
+
+    default = dict(outdir='./',
+                   lr=0.0001,                  # learning rate
+                   training_frequency=1000,    # training frequency in # nested samples
+                   batch_size=100,             # batch size
+                   val_size=0.1,               # validation per cent (0.1 = 10%)
+                   max_epochs=500,             # maximum number of training epochs
+                   patience=20,                # stop after n epochs with no improvement
+                   device_tag="cuda",          # device for training
+                   proposal_device="cpu",      # device for proposals
+                   normalise=False,            # normalise using priors
+                   logit=False,                # use logit
+                   truncate_proposal=False,    # truncate proposal with logL
+                   proposal_size=10000,        # number of points to propose
+                   fuzz=1.0,                   # fuzz factor for radius of contours
+                   memory=False,               # memory in number of epochs
+                   model_dict=default_model)
+
+    if not isinstance(d, dict):
+        raise TypeError('Must pass a dictionary to update the default trainer settings')
+    else:
+        default.update(d)
+    # check arguments
+    if not default['normalise'] and default['logit']:
+        raise RuntimeError('Must enable normalisation to use logit')
+    if default['fuzz'] < 1.0:
+        raise ValueError('Fuzz factor must be greater or equal to 1.0')
+
+    return default
 
 def logistic(x):
-   return 1. / (1. + np.exp(-x))
+    """Logistic function"""
+    return 1. / (1. + np.exp(-x))
 
 def logit(x):
+    """Inverse logistic function"""
     return - np.log((1. / x) - 1.)
 
 def weight_reset(m):
@@ -130,87 +165,16 @@ def plot_comparison(truth, samples, output='./', filename='sample_comparison.png
     plt.close('all')
 
 
-class FlowModel(nn.Module):
-    """
-    Builds the sequential flow model with the provided inputs
-
-    Based on SingleSpeed in: https://github.com/adammoss/nnest/blob/master/nnest/networks.py
-    """
-
-    def __init__(self, n_inputs=None, n_conditional_inputs=None, n_neurons=128, n_layers=2, n_blocks=4, device=None):
-        super(FlowModel, self).__init__()
-
-        if device is None:
-            raise ValueError("Must provided a device or a string for a device")
-
-        if type(device) == str:
-            self.device = torch.device(device)
-        else:
-            self.device = device
-
-        self.n_inputs = n_inputs
-        if n_conditional_inputs is not None:
-            self.conditional = True
-            self.n_clusters = n_conditional_inputs
-        else:
-            self.conditional = False
-            self.n_clusters = 1
-
-        mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=self.device), 2)
-
-        layers = []
-        for _ in range(n_blocks):
-            layers += [CouplingLayer(n_inputs, n_neurons, mask,
-                                     num_cond_inputs=n_conditional_inputs,
-                                     num_layers=n_layers),
-                       BatchNormFlow(n_inputs)]
-            #layers += [MADE(n_inputs, n_neurons)]
-            mask = 1 - mask
-
-        self.net = FlowSequential(*layers)
-        self.net.to(self.device)
-
-    def forward(self, inputs, cond_inputs=None, mode='direct', logdets=None):
-        """
-        Forward pass
-        """
-        return self.net(inputs, cond_inputs=cond_inputs, mode=mode, logdets=logdets)
-
-    def log_probs(self, inputs, cond_inputs=None):
-        """
-        Log Likelihood
-        """
-        return self.net.log_probs(inputs, cond_inputs=cond_inputs)
-
-    def sample(self, num_samples=None, noise=None, cond_inputs=None):
-        """
-        Produce samples
-        """
-        return self.net.sample(num_samples=num_samples, noise=noise, cond_inputs=cond_inputs)
-
-
 class FlowTrainer(Trainer):
 
-
-    def __init__(self, trainer_dict=None, manager=None, output='./'):
+    def __init__(self, trainer_dict=None, manager=None, output='./', cpnest_model=None):
         self.manager=None
-        self.setup_model = setup_model
         super(FlowTrainer, self).__init__(manager=manager, output=output)
         self.outdir = output
         self.logger = logging.getLogger("CPNest")
-        self.priors = None
         self.intialised = False
-        self.normalise = False
-        self.device_tag = 'cpu'
-        # default training params
-        self.lr = 0.0001
-        self.val_size = 0.1
-        self.batch_size = 100
-        self.max_epochs = 1000
-        self.patience = 100
-        self.logit = False
         # define setup function
-        self._setup_from_input_dict(trainer_dict)
+        self._setup_from_input_dict(trainer_dict, cpnest_model=cpnest_model)
 
 
     def save_input(self, attr_dict):
@@ -225,10 +189,18 @@ class FlowTrainer(Trainer):
         with open(output_file, "w") as f:
             json.dump(d, f, indent=4)
 
-    def _setup_from_input_dict(self, attr_dict):
+    def _setup_from_input_dict(self, attr_dict, cpnest_model=None):
         """
         Setup the trainer from a dictionary
         """
+        if attr_dict['normalise']:
+            if 'prior_bounds' not in attr_dict and cpnest_model is None:
+                raise RuntimeError('Must provided CPNest model or prior_bounds to use normalisation')
+            else:
+             if cpnest_model is not None:
+                attr_dict["prior_bounds"] = np.array(cpnest_model.bounds)
+        else:
+            self.prior_bounds = None
         for key, value in six.iteritems(attr_dict):
             setattr(self, key, value)
         self.n_inputs = self.model_dict["n_inputs"]
@@ -241,9 +213,10 @@ class FlowTrainer(Trainer):
         Intialise the model and optimiser
         """
         self.device = torch.device(self.device_tag)
-        self.model = self.setup_model(**self.model_dict, device=self.device)
+        self.model = setup_model(**self.model_dict, device=self.device)
         self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-6)
-        if self.priors is not None:
+
+        if self.prior_bounds is not None and self.normalise:
             self.logger.info("Setting up normalisation")
             self.setup_normalisation()
         self.intialised = True
@@ -263,9 +236,8 @@ class FlowTrainer(Trainer):
         """
         Setup normalisation using the priors
         """
-        self._prior_max = np.max(self.priors, axis=0)
-        self._prior_min = np.min(self.priors, axis=0)
-        self.normalise = True
+        self._prior_min = self.prior_bounds[:,0]
+        self._prior_max = self.prior_bounds[:,1]
 
         if self.logit:
             self.logger.debug('Using logit')
@@ -331,7 +303,6 @@ class FlowTrainer(Trainer):
         if self.normalise:
             self.logger.info("Using normalisation")
             samples = self.normalise_samples(samples)
-            #samples = self.normalise_logit(samples)
 
         if plot:
             self.logger.debug("Flow trainer: plotting input")
@@ -358,9 +329,6 @@ class FlowTrainer(Trainer):
         if not self.intialised:
             self.logger.info("Initialising")
             self.initialise()
-            # Option to force first training to be longer
-            #max_epochs = 5000
-            #patience = 500
 
         elif self.training_count:
             self.logger.info("Reseting weights")
@@ -423,7 +391,6 @@ class FlowTrainer(Trainer):
         z, output = self.sample(N=10000)
         np.save(block_outdir + 'samples.npy', [z, output])
 
-
         data_latent = np.empty([0, self.n_inputs])
         for idx, data in enumerate(val_loader):
             if isinstance(data, list):
@@ -447,10 +414,7 @@ class FlowTrainer(Trainer):
             plot_samples(z, output, output=block_outdir)
             if self.normalise:
                 output = self.rescale_samples(output)
-            #rescaled_output = self.inverse_normalise_logit(output)
             plot_samples(z, output, output=block_outdir, filename='rescaled_output_samples.png')
-            # TODO: fix plotting for N dimensions
-            #plot_corner_contour([samples, output], labels=["Input data", "Generated data"], filename=block_outdir+"comparison.png")
 
     def _train(self, loader, noise_scale=0.):
         """
@@ -547,8 +511,6 @@ class AugmentedFlowTrainer(FlowTrainer):
         """
         super(AugmentedFlowTrainer, self).__init__(**kwargs)
         self.augment_dim = self.model_dict['augment_dim']
-        # overwrite default setup function
-        self.setup_model = setup_augmented_model
 
     def _prep_data(self, samples, plot=False, output='./'):
         """
@@ -753,10 +715,9 @@ class ClusterFlowTrainer(FlowTrainer):
         if self.normalise:
             self.logger.info("Using normalisation")
             samples = self.normalise_samples(samples)
-
-        if plot:
-            self.logger.debug("Flow trainer: plotting input")
-            plot_inputs(samples, output=output)
+            if plot:
+                self.logger.debug("Flow trainer: plotting input")
+                plot_inputs(samples, output=output)
 
         self.logger.debug("N input samples: {}".format(len(samples)))
 

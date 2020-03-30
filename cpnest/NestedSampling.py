@@ -502,7 +502,6 @@ class NestedSampler(object):
         if not self.manager.training.value:
             self.logger.info("Training")
             params = self.params.copy()
-            N = 5000
             if self.enable_memory:
                 if len(self.nested_samples):
                     if len(self.nested_samples) >= self.memory:

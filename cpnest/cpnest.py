@@ -121,8 +121,11 @@ class CPNest(object):
             if None in [trainer_class, trainer_dict, trainer_type]:
                 raise ValueError("If using a trainer must specifiy three arguments: trainer_class, trainer_dict, trainer_type")
             else:
+                from .flowtrainer import update_trainer_dict
                 self.trainable = True
                 self.logger.info("Trainer enabled")
+                trainer_dict = update_trainer_dict(trainer_dict)
+                self.logger.info("Updated defaults")
         else:
             self.trainable = False
         if self.trainable:
@@ -166,8 +169,8 @@ class CPNest(object):
         if self.trainable:
             if not os.path.exists(resume_file) or resume == False:
                 trainer = trainer_class(trainer_dict=trainer_dict,
-                        manager=self.manager,
-                        output=output)
+                        manager=self.manager, output=output,
+                        cpnest_model=self.user)
             else:
                 raise NotImplementedError("Can't restore neural network from resume file")
 

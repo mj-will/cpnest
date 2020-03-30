@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 from cpnest.parameter import LivePoint
 from cpnest.flowtrainer import plot_samples
-from cpnest.flows import setup_model, setup_augmented_model
+from cpnest.flows import setup_model
 
 import torch
 
@@ -266,14 +266,14 @@ class EnsembleEigenVector(EnsembleProposal):
 
 class NaiveProposal(EnsembleProposal):
 
-    def __init__(self, names=None, log_prior=None, bounds=None, N=1000, **kwargs):
+    def __init__(self, names=None, log_prior=None, prior_bounds=None, N=1000, **kwargs):
         super(NaiveProposal, self).__init__(**kwargs)
 
         self.dims = len(names)
         self.names = names
         self.log_prior = log_prior
-        self.bounds = bounds
-        self.prior_denom = np.ptp(bounds)
+        self.prior_bounds = np.array(prior_bounds)
+        self.prior_denom = np.ptp(self.prior_bounds)      # device for proposals
         self.populated = False
         self.N = N
 
@@ -296,7 +296,7 @@ class NaiveProposal(EnsembleProposal):
     def get_sample(self, old_sample):
         """Propose a new sample"""
         if not self.populated:
-            theta = np.random.uniform(self.bounds[0], self.bounds[1], [self.N, self.dims])
+            theta = np.random.uniform(self.prior_bounds[:,0], self.prior_bounds[:,1], [self.N, self.dims])
             theta = [self.make_live_point(t) for t in theta]
             log_w = self.get_weights(theta)
             # rejection sampling
@@ -316,13 +316,11 @@ class FlowProposal(EnsembleProposal):
     torch = __import__('torch')
     log_J = 0.0
 
-    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_range=None, proposal_size=10000, fuzz=1.0, setup=None, normalise=True, **kwargs):
+    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_bounds=None, proposal_size=10000, fuzz=1.0, setup=None, normalise=True, **kwargs):
 
         super(FlowProposal, self).__init__()
         print(model_dict)
-        #from .flowtrainer import FlowModel
         self.logger = logging.getLogger("CPNest")
-        #self.model = FlowModel(**model_dict, device=device)                     # Flow model
         if setup is None:
             self.model = setup_model(**model_dict, device=device)
         else:
@@ -333,7 +331,6 @@ class FlowProposal(EnsembleProposal):
         self.sigma = np.identity(self.ndims)
         self.worst_r2 = np.inf
         self.samples = None                    # Stored samples
-        self.r2 = None                         # Radius squared
         self.populated = False                 # Is sample list populated
         self.names = names                     # Names of samples for LivePoint
         self.fuzz = fuzz
@@ -341,8 +338,9 @@ class FlowProposal(EnsembleProposal):
         self.prior = self.gaussian_prior
 
         self.log_prior = log_prior
-        if prior_range is not None and normalise:
-            self.setup_normalisation(prior_range)
+        if prior_bounds is not None and normalise:
+            prior_bounds = np.array(prior_bounds)
+            self.setup_normalisation(prior_bounds)
         self.previous_sample = None
 
         self.proposal_size = proposal_size
@@ -356,10 +354,10 @@ class FlowProposal(EnsembleProposal):
         """Create an instance of LivePoint with the given inputs"""
         return LivePoint(self.names, d=theta)
 
-    def setup_normalisation(self, priors):
+    def setup_normalisation(self, prior_bounds):
         """Setup the normalisation given the priors"""
-        p_max = np.max(priors, axis=0)
-        p_min = np.min(priors, axis=0)
+        p_min = prior_bounds[:,0]
+        p_max = prior_bounds[:,1]
 
         def rescale_input(theta):
             """Redefine the input rescaling"""
@@ -516,17 +514,16 @@ class RandomFlowProposal(FlowProposal):
                 if z.size:
                     break
 
-            self.r2 = self.radius2(z)
             samples, log_J = self.backward_pass(z)
 
             # rescale given priors used intially, need for priors
             samples = self.rescale_output(samples)
             samples = [self.make_live_point(p) for p in samples]
-            alpha = self.compute_weights(samples, z, -log_J)
+            log_w = self.compute_weights(samples, z, -log_J)
 
             # rejection sampling
-            u = np.log(np.random.rand(len(samples)))
-            indices = np.where((alpha - u) >= 0)[0]
+            log_u = np.log(np.random.rand(len(samples)))
+            indices = np.where((log_w - log_u) >= 0)[0]
             if len(indices):
                 # array of indices to take random draws from
                 self.samples += [samples[i] for i in indices]
@@ -576,10 +573,10 @@ class LogitFlowProposal(RandomFlowProposal):
     def __init__(self, **kwargs):
         super(LogitFlowProposal, self).__init__(**kwargs)
 
-    def setup_normalisation(self, priors):
+    def setup_normalisation(self, prior_bounds):
         """Setup the normalisation given the priors"""
-        p_max = np.max(priors, axis=0)
-        p_min = np.min(priors, axis=0)
+        p_min = prior_bounds[:, 0]
+        p_max = prior_bounds[:, 1]
 
         def normalise_logit(x):
             """
@@ -621,8 +618,6 @@ class LogitFlowProposal(RandomFlowProposal):
         Compute the jacobian of the sigmoid transformation
         """
         return np.sum(np.log((((np.exp(-theta) + 1) ** 2.) / np.exp(-theta))), axis=1)
-        #return -np.log(np.sum( np.exp(-theta) / ((np.exp(-theta) + 1) ** 2.), axis=1))
-        #return np.sum(theta, axis=1) +  np.sum(2. * np.log(1 + np.exp(-theta)), axis=1)
 
     def populate(self, old_r2, N=10000):
         """Populate a pool of latent points"""
@@ -638,17 +633,16 @@ class LogitFlowProposal(RandomFlowProposal):
                 if z.size:
                     break
 
-            self.r2 = self.radius2(z)
             samples_logit, log_J = self.backward_pass(z)
 
             # rescale given priors used intially, need for priors
             samples = self.rescale_output(samples_logit)
             samples = [self.make_live_point(p) for p in samples]
-            alpha = self.compute_weights(samples, z, -log_J, samples_logit)
+            log_w = self.compute_weights(samples, z, -log_J, samples_logit)
 
             # rejection sampling
-            u = np.log(np.random.rand(len(samples)))
-            indices = np.where((alpha - u) >= 0)[0]
+            log_u = np.log(np.random.rand(len(samples)))
+            indices = np.where((log_w - log_u) >= 0)[0]
             if len(indices):
                 # array of indices to take random draws from
                 self.samples += [samples[i] for i in indices]
@@ -662,8 +656,6 @@ class LogitFlowProposal(RandomFlowProposal):
 
 
 class AugmentedFlowProposal(RandomFlowProposal):
-
-    setup_model = setup_augmented_model
 
     def __init__(self, truncate=False, **kwargs):
         super(AugmentedFlowProposal, self).__init__(**kwargs)
@@ -712,16 +704,6 @@ class AugmentedFlowProposal(RandomFlowProposal):
         x, e, log_J = self.model(y_tensor, z_tensor, mode='generate')
         return x
 
-    def check_bounds(self, theta):
-        """"Remove samples outside of prior bounds"""
-        # find below mind
-        less = np.any(theta < self.bounds[0, :], axis=1)[:, np.newaxis]
-        # find above max
-        greater  = np.any(theta > self.bounds[1, :], axis=1)[:, np.newaxis]
-        # accept only false for both
-        accept = ~np.any(np.concatenate([less, greater], axis=1), axis=1)
-        return accept
-
     def compute_weights(self, theta):
         """
         Compute the weight for a given set of samples
@@ -762,7 +744,6 @@ class AugmentedFlowProposal(RandomFlowProposal):
                 if latent_samples.size:
                     break
 
-            self.r2 = self.radius2(latent_samples)   # not used
             # Only need x to compute log_p_x
             # see equation i
             y = latent_samples[:, :self.ndims]
@@ -823,6 +804,7 @@ class AugmentedFlowProposal(RandomFlowProposal):
             self.logger.debug('Pool of points is empty')
         # make live point and return
         return new_sample
+
 
 class DefaultProposalCycle(ProposalCycle):
     """
