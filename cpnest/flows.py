@@ -749,7 +749,7 @@ def setup_augmented_model(n_inputs=None,  augment_dim=None, n_conditional_inputs
     else:
         raise ValueError('Unknown flow type, choose from RealNVP')
 
-    model = AugmentedSequential(*blocks).to('cuda')
+    model = AugmentedSequential(*blocks).to(device)
     model.to(device)
     model.augment_dim = augment_dim
     model.device = device
