@@ -79,10 +79,12 @@ def plot_flows(model, n_inputs, N=1000, inputs=None, cond_inputs=None, mode='inv
 
 
 
-def setup_model(n_inputs=None,  n_conditional_inputs=None, n_neurons=128, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu'):
+def setup_model(n_inputs=None,  n_conditional_inputs=None, n_neurons=128, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu', **kwargs):
     """"
     Setup the model
     """
+    if 'augment_dim' in kwargs:
+        raise RuntimeError("Recieved kwarg 'augment_dim' not supported by basic setup")
     if device is None:
         raise ValueError("Must provided a device or a string for a device")
     if type(device) == str:
