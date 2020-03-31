@@ -261,6 +261,7 @@ class DynamicNestedSampler(NestedSampler):
             self.blocked=True
 
         logZ=self.nested_intervals.logZ()
+
         self.condition = logaddexp(logZ,self.logLmax - self.iteration/(float(self.Ninit))) - logZ
 
 
