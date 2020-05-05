@@ -148,6 +148,7 @@ class NestedSampler(object):
                  trainer = False,
                  trainer_type   = None,
                  trainer_dict   = None,
+                 max_rejection  = None,
                  n_periodic_checkpoint = None):
         """
         Initialise all necessary arguments and
@@ -184,6 +185,11 @@ class NestedSampler(object):
         header.write('\tlogL\n')
         header.close()
 
+        if max_rejection is not None:
+            self.max_rejection = max_rejection
+        else:
+            self.max_rejection = self.Nlive
+
         self.trainer = trainer
         self.trainer_type = trainer_type
         if trainer:
@@ -207,6 +213,14 @@ class NestedSampler(object):
                     self.enable_memory = False
             else:
                 self.enable_memory = False
+
+            if 'cooldown' in trainer_dict:
+                if not isinstance(trainer_dict['cooldown'], int):
+                    raise RuntimeError('If specified, cooldown must be an int')
+                else:
+                    self.cooldown = trainer_dict['cooldown']
+            else:
+                self.cooldown = self.nthreads
 
             self.n_likelihood_evaluations = None
             self.logger.info("Training enabled in nested sampling")
@@ -298,7 +312,7 @@ class NestedSampler(object):
                         # it will break and force the trainer to retrain
                         if loops > 1 and not updated:
                             self.retrain = False
-                            if self.iteration - self.last_updated > self.nthreads:
+                            if (self.iteration - self.last_updated) > self.cooldown:
                                 # force state update
                                 self.logger.debug("Forcing update")
                                 # wait for training to exit
@@ -311,10 +325,12 @@ class NestedSampler(object):
                                 self.manager.stop_training.value = 0
                                 self.state_update(force=True, force_train=False)
                                 self.last_updated = self.iteration
+                                updated = True
                             else:
-                                self.logger.debug("Using previous update {}".format(self.last_update))
-                                self.state_update(force=True, weights_file=self.weights_file)
-                            updated = True
+                                self.logger.debug(f'Tried to force update, but cooldown ({self.cooldown}) not reached, continuing')
+                                updated = True   # tried to update, so should not try again
+                                #self.logger.debug("Using previous update {}".format(self.last_update))
+                                #self.state_update(force=True, weights_file=self.weights_file)
                             self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
                             self.rejected += 1
                         # resend it to the producer
@@ -324,6 +340,7 @@ class NestedSampler(object):
                     else:
                         self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
                         self.rejected += 1
+
             self.acceptance = float(self.accepted)/float(self.accepted + self.rejected)
             if self.verbose:
                 self.logger.info("{0:d}: n:{1:4d} NS_acc:{2:.3f} S{3:d}_acc:{4:.3f} sub_acc:{5:.3f} H: {6:.2f} logL {7:.5f} --> {8:.5f} dZ: {9:.3f} logZ: {10:.3f} logLmax: {11:.2f}"\
@@ -424,14 +441,14 @@ class NestedSampler(object):
                 for c in self.manager.consumer_pipes:
                     c.send(CPCommand('switch_proposal', 'naive'))
 
-                while i < 2. * self.Nlive:
+                while i < self.max_rejection:
                     self.consume_sample()
                     i += 1
-
-            #if self.trainer:
-            #    self.train()
-            #    while not self.manager.trained.value:
-            #        pass
+                    # if the normalsing flows is trained, stop the rejection
+                    # sampling and switich to normal checks
+                    if self.last_updated:
+                        break
+                self.logger.info('Finished naive sampling')
 
             while self.condition > self.tolerance:
 
@@ -527,7 +544,7 @@ class NestedSampler(object):
             self.weights_file = self.manager.trainer_consumer_pipe.recv()
             if self.manager.enable_flow.value or force:
                 self.logger.info("Updating flow")
-                self.last_update = self.iteration
+                self.last_updated = self.iteration
                 for c in self.manager.consumer_pipes:
                     c.send(CPCommand('set_weights', payload=self.weights_file))
                 if not self.flow_enabled:
@@ -552,9 +569,17 @@ class NestedSampler(object):
                 self.flow_enabled = True
                 self.flow_count = 0
             self.retrain = False
+        # updates won't always be every iter so rather than check for
+        # zero, check for less than the number of threads
+        train = False
+        if (self.iteration - self.last_updated) % self.training_frequency \
+                < self.nthreads:
+            if self.iteration - self.last_updated > self.cooldown:
+                train = True
 
-        if (len(self.nested_samples) % self.training_frequency < self.nthreads) or self.retrain or force_train:
-            if len(self.nested_samples) >= self.training_frequency:
+        if train or self.retrain or force_train:
+            # Double check there are live points to train on
+            if self.iteration >= self.training_frequency:
                 if self.retrain:
                     self.retrain = False
                 self.train()

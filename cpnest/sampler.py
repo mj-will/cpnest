@@ -292,6 +292,7 @@ class Sampler(CPThread):
         """
         if not self.trainer_initialised:
             if 'flow' in self.trainer_type:
+                kwargs = {}
                 from .proposal import RandomFlowProposal, LogitFlowProposal, NaiveProposal, AugmentedFlowProposal
                 try:
                     device = self.trainer_dict["proposal_device"]
@@ -306,10 +307,18 @@ class Sampler(CPThread):
                 elif 'aug' in self.trainer_type:
                     self.logger.debug('Using AugmentedFlowProposal')
                     Proposal = AugmentedFlowProposal
+                elif 'gw' in self.trainer_type:
+                    self.logger.debug('Using GWFlowProposal')
+                    from .gw.proposal import GWFlowProposal, GWNaiveProposal
+                    Proposal = GWFlowProposal
+                    NaiveProposal = GWNaiveProposal
+                    if self.trainer_dict['logit']:
+                        kwargs['logit_parameters'] = self.trainer_dict['logit']
+                    if self.trainer_dict['q_inversion']:
+                        kwargs['q_inversion'] = True
                 else:
                     self.logger.debug('Using RandomFlowProposal')
                     Proposal = RandomFlowProposal
-
                 self.flow_proposal = Proposal(
                         model_dict=self.trainer_dict["model_dict"],
                         names=self.model.names,
@@ -317,10 +326,12 @@ class Sampler(CPThread):
                         prior_bounds=self.model.bounds,
                         device=device,
                         proposal_size=self.trainer_dict["proposal_size"],
+                        proposal=self.trainer_dict['proposal'],
                         fuzz=self.trainer_dict["fuzz"],
                         output=self.output + "proposal_{}/".format(os.getpid()),
                         normalise=self.trainer_dict["normalise"],
-                        truncate=self.trainer_dict["truncate_proposal"])
+                        truncate=self.trainer_dict["truncate_proposal"],
+                        **kwargs)
                 self.trainer_model = self.flow_proposal
                 self.default_proposal = self.proposal
                 self.counter = 0

@@ -9,7 +9,7 @@ import os
 from random import sample,gauss,randrange,uniform
 from scipy.interpolate import LSQUnivariateSpline
 from scipy.signal import savgol_filter
-from scipy.stats import multivariate_normal, truncnorm
+from scipy.stats import multivariate_normal, truncnorm, chi, chi
 from scipy.special import logsumexp
 
 import matplotlib.pyplot as plt
@@ -273,13 +273,23 @@ class NaiveProposal(EnsembleProposal):
         self.names = names
         self.log_prior = log_prior
         self.prior_bounds = np.array(prior_bounds)
-        self.prior_denom = np.ptp(self.prior_bounds)      # device for proposals
+
+        self.prior_denom = np.ptp(self.prior_bounds)
+
         self.populated = False
         self.N = N
 
     def make_live_point(self, theta):
         """Create an instance of LivePoint with the given inputs"""
         return LivePoint(self.names, d=theta)
+
+    def unpack_live_point(self, theta):
+        """Return the necessary information from an instance of cpnest.parameter.LivePoint"""
+        return np.frombuffer(theta.values)
+
+    def draw_proposal(self):
+        """Draw from the proposal distribution"""
+        return np.random.uniform(self.prior_bounds[:,0], self.prior_bounds[:,1], [self.N, self.dims])
 
     def log_proposal(self, theta):
         """Proposal probability"""
@@ -296,7 +306,7 @@ class NaiveProposal(EnsembleProposal):
     def get_sample(self, old_sample):
         """Propose a new sample"""
         if not self.populated:
-            theta = np.random.uniform(self.prior_bounds[:,0], self.prior_bounds[:,1], [self.N, self.dims])
+            theta = self.draw_proposal()
             theta = [self.make_live_point(t) for t in theta]
             log_w = self.get_weights(theta)
             # rejection sampling
@@ -316,34 +326,63 @@ class FlowProposal(EnsembleProposal):
     torch = __import__('torch')
     log_J = 0.0
 
-    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_bounds=None, proposal_size=10000, fuzz=1.0, setup=None, normalise=True, **kwargs):
+    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_bounds=None, proposal='gaussian', proposal_size=10000, fuzz=1.0, setup=None, normalise=True,
+            initialise=True, **kwargs):
 
         super(FlowProposal, self).__init__()
-        print(model_dict)
         self.logger = logging.getLogger("CPNest")
-        if setup is None:
-            self.model = setup_model(**model_dict, device=device)
-        else:
-            self.model = setup(**model_dict, device=device)
-        self.update_count = 0                  # times flows have been updated
         self.ndims = model_dict["n_inputs"]
+        self.names = names                     # Names of samples for LivePoint
+
+        self.update_count = 0                  # times flows have been updated
         self.mu = np.zeros(self.ndims)
         self.sigma = np.identity(self.ndims)
         self.worst_r2 = np.inf
         self.samples = None                    # Stored samples
         self.populated = False                 # Is sample list populated
-        self.names = names                     # Names of samples for LivePoint
         self.fuzz = fuzz
 
-        self.prior = self.gaussian_prior
+        if proposal == 'uniform':
+            self.logger.debug('Using uniform proposal')
+            self.prior = self.uniform_prior
+            self.draw = self.draw_uniform
+        else:
+            self.logger.debug('Using default gaussian proposal')
+            self.prior = self.gaussian_prior
+            self.draw = self.draw_trunc
 
         self.log_prior = log_prior
-        if prior_bounds is not None and normalise:
-            prior_bounds = np.array(prior_bounds)
-            self.setup_normalisation(prior_bounds)
         self.previous_sample = None
 
         self.proposal_size = proposal_size
+        #if prior_bounds is not None and normalise:
+        self.normalise = normalise
+        self.prior_bounds = np.array(prior_bounds)
+        #    self.setup_normalisation(prior_bounds)
+        #if not self.ndims  == model_dict["n_inputs"]:
+        #    model_dict = self.ndims
+
+        self.setup = setup
+        #    self.model = setup_model(**model_dict, device=device)
+        #else:
+        #    self.model = setup(**model_dict, device=device)
+        self.model_dict = model_dict
+        self.device = device
+
+        if initialise:
+            self.initialise()
+
+    def initialise(self):
+        """
+        Initialise normalisation and model
+        """
+        if self.prior_bounds is not None and self.normalise:
+            self.setup_normalisation(self.prior_bounds)
+        if self.setup is not None:
+            self.model = self.setup(**self.model_dict, device=self.device)
+        else:
+            self.model = setup_model(**self.model_dict, device=self.device)
+            print('Proposal model', self.model_dict)
 
     @staticmethod
     def unpack_live_point(point):
@@ -383,23 +422,25 @@ class FlowProposal(EnsembleProposal):
 
     def forward_pass(self, theta):
         """Pass a vector of points through the model"""
-        theta_tensor = self.torch.Tensor(theta.astype(np.float32)).to(self.model.device)
-        z, log_J = self.model(theta_tensor, mode='direct')
+        theta_tensor = torch.Tensor(theta.astype(np.float32)).to(self.model.device)
+        with torch.no_grad():
+            z, log_J = self.model(theta_tensor, mode='direct')
         z = z.detach().cpu().numpy()
         log_J = log_J.detach().cpu().numpy()
         return z, np.squeeze(log_J)
 
     def backward_pass(self, z):
         """A backwards pass from the model (latent -> real)"""
-        z_tensor = self.torch.Tensor(z.astype(np.float32)).to(self.model.device)
-        theta, log_J = self.model(z_tensor, mode='inverse')
+        z_tensor = torch.Tensor(z.astype(np.float32)).to(self.model.device)
+        with torch.no_grad():
+            theta, log_J = self.model(z_tensor, mode='inverse')
         theta = theta.detach().cpu().numpy()
         log_J = log_J.detach().cpu().numpy()
         return theta, np.squeeze(log_J)
 
     def load_weights(self, weights_file):
         """Update the model from a weights file"""
-        self.model.load_state_dict(self.torch.load(weights_file))
+        self.model.load_state_dict(torch.load(weights_file))
         self.model.eval()
         self.populated = False
         self.update_count += 1
@@ -430,15 +471,20 @@ class FlowProposal(EnsembleProposal):
 
     def draw_uniform(self, r2, N=1000, fuzz=1.0):
         """Draw N samples from a region within the worst point"""
-        z = self.random_nsphere(r=np.sqrt(r2), N=N, fuzz=fuzz)
-        return z
+        return self.random_nsphere(r=np.sqrt(r2), N=N, fuzz=fuzz)
 
     def draw_trunc(self, r2, N=1000, fuzz=1.0):
         """Draw N samples from a region within the worst point"""
-        r = np.sqrt(r2)
-        samples = np.concatenate([[truncnorm.rvs(-r, r, size=N)] for _ in range(self.ndims)], axis=0).T
+        r = np.sqrt(r2) * fuzz
+        p = np.empty([0])
+        while p.shape[0] < N:
+            p = np.concatenate([p, chi.rvs(self.ndims, size=N)])
+            p = p[p < r]
+        x = np.random.randn(p.size, self.ndims)
+        samples = (p * x.T / np.sqrt(np.sum(x**2., axis=1))).T
+       # samples = np.concatenate([[truncnorm.rvs(-r, r, size=N)] for _ in range(self.ndims)], axis=0).T
         # remove points outside bounds
-        samples = samples[np.where(np.sum(samples**2., axis=-1) < r2 )]
+        #samples = samples[np.where(np.sum(samples**2., axis=-1) < r2 )]
         return samples
 
     def uniform_prior(self, z):
@@ -482,7 +528,7 @@ class RandomFlowProposal(FlowProposal):
         self.output = os.path.join(output, '')
         os.makedirs(self.output, exist_ok=True)
         self.count = 0
-        self.draw = self.draw_trunc
+        #self.draw = self.draw_trunc
 
     def save_samples(self, z, samples, accepted):
         """Save the samples generated"""
@@ -491,11 +537,10 @@ class RandomFlowProposal(FlowProposal):
         flag[accepted] = True
         flag = np.array([flag, flag])
         np.save(self.output + 'samples_{}.npy'.format(self.count), [z, samples, flag])
-        self.count += 1
 
     def load_weights(self, weights_file):
         """Update the model from a weights file"""
-        self.model.load_state_dict(self.torch.load(weights_file))
+        self.model.load_state_dict(torch.load(weights_file))
         self.model.eval()
         self.populated = False
         self.update_count += 1
@@ -515,7 +560,6 @@ class RandomFlowProposal(FlowProposal):
                     break
 
             samples, log_J = self.backward_pass(z)
-
             # rescale given priors used intially, need for priors
             samples = self.rescale_output(samples)
             samples = [self.make_live_point(p) for p in samples]
@@ -524,7 +568,13 @@ class RandomFlowProposal(FlowProposal):
             # rejection sampling
             log_u = np.log(np.random.rand(len(samples)))
             indices = np.where((log_w - log_u) >= 0)[0]
-            if len(indices):
+            if not len(indices):
+                self.logger.error('Rejection sampling produced zero samples!')
+                raise RuntimeError('Rejection sampling produced zero samples!')
+            if len(indices) / N < 0.01:
+                self.logger.error('Rejection sampling accepted less than 1 percent of samples!')
+                raise RuntimeError('Rejection sampling accepted less than 1 percent of samples!')
+            else:
                 # array of indices to take random draws from
                 self.samples += [samples[i] for i in indices]
                 self.z = np.concatenate([self.z, z[indices]], axis=0)
@@ -554,9 +604,10 @@ class RandomFlowProposal(FlowProposal):
                     self.logger.error('Could not populate proposal')
                     break
 
-            self.save_samples(self.z, self.samples, self.indices)
+            #self.save_samples(self.z, self.samples, self.indices)
             samples = np.array([s.values for s in self.samples])
-            plot_samples(self.z, samples, output=self.output, filename='samples_{}.png'.format(self.count-1))
+            plot_samples(self.z, samples, output=self.output, filename='samples_{}.png'.format(self.count), names=self.names)
+            self.count += 1
 
         # new sample is drawn randomly from proposed points
         new_sample = self.samples[self.indices[0]]
@@ -676,7 +727,7 @@ class AugmentedFlowProposal(RandomFlowProposal):
 
     def load_weights(self, weights_file):
         """Update the model from a weights file"""
-        self.model.load_state_dict(self.torch.load(weights_file))
+        self.model.load_state_dict(torch.load(weights_file))
         self.model.eval()
         self.populated = False
         self.update_count += 1
@@ -687,8 +738,8 @@ class AugmentedFlowProposal(RandomFlowProposal):
         if e is None:
             e = np.zeros([theta.shape[0], self.augment_dim])
         assert theta.shape[0] == e.shape[0]
-        theta_tensor = self.torch.Tensor(theta.astype(np.float32)).to(self.model.device)
-        e_tensor = self.torch.Tensor(e.astype(np.float32)).to(self.model.device)
+        theta_tensor = torch.Tensor(theta.astype(np.float32)).to(self.model.device)
+        e_tensor = torch.Tensor(e.astype(np.float32)).to(self.model.device)
         y, z, log_J = self.model(theta_tensor, e_tensor, mode='forward')
         y = y.detach().cpu().numpy()
         z = z.detach().cpu().numpy()
@@ -699,8 +750,8 @@ class AugmentedFlowProposal(RandomFlowProposal):
         """A backwards pass from the model (latent -> real)"""
         assert y.shape[0] == z.shape[0]
         # Notation here matches augmented flows paper
-        y_tensor = self.torch.Tensor(y.astype(np.float32)).to(self.model.device)
-        z_tensor = self.torch.Tensor(z.astype(np.float32)).to(self.model.device)
+        y_tensor = torch.Tensor(y.astype(np.float32)).to(self.model.device)
+        z_tensor = torch.Tensor(z.astype(np.float32)).to(self.model.device)
         x, e, log_J = self.model(y_tensor, z_tensor, mode='generate')
         return x
 

@@ -78,9 +78,9 @@ def plot_flows(model, n_inputs, N=1000, inputs=None, cond_inputs=None, mode='inv
     fig.savefig(output + 'flows.png')
 
 
-
 def setup_model(n_inputs=None,  n_conditional_inputs=None, augment_dim=None,
-        n_neurons=128, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu', **kwargs):
+        n_neurons=128, n_layers=2, n_blocks=4, ftype='RealNVP', device='cpu',
+        mask=None, **kwargs):
     """"
     Setup the model
     """
@@ -95,7 +95,10 @@ def setup_model(n_inputs=None,  n_conditional_inputs=None, augment_dim=None,
     ftype = ftype.lower()
     if ftype == 'realnvp':
         if augment_dim is None:
-            mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
+            if mask is None:
+                mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
+            else:
+                mask = torch.from_numpy(mask.astype('float32')).to(device)
             for _ in range(n_blocks):
                 blocks += [CouplingLayer(n_inputs, n_neurons, mask,
                                          num_cond_inputs=n_conditional_inputs,

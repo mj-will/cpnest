@@ -18,6 +18,7 @@ from .trainer import Trainer
 from .flows import BatchNormFlow, setup_model
 from .plot import plot_corner_contour
 
+
 def update_trainer_dict(d):
     """
     Update the default dictionary for a trainer
@@ -37,9 +38,11 @@ def update_trainer_dict(d):
                    normalise=False,            # normalise using priors
                    logit=False,                # use logit
                    truncate_proposal=False,    # truncate proposal with logL
+                   proposal='gaussian',        # proposal distribution
                    proposal_size=10000,        # number of points to propose
                    fuzz=1.0,                   # fuzz factor for radius of contours
                    memory=False,               # memory in number of epochs
+                   plot=True,                  # produce diagonostic plots
                    model_dict=default_model)
 
     if not isinstance(d, dict):
@@ -86,12 +89,19 @@ def plot_loss(epoch, history, output='./'):
     fig.savefig(output + 'loss_log.png')
     plt.close('all')
 
-def plot_samples(z, samples, output='./', filename='output_samples.png'):
+def plot_samples(z, samples, output='./', filename='output_samples.png', names=None, c=None):
     """
     Plot the samples in the latent space and parameter space
     """
     N = samples.shape[0]
     d = samples.shape[-1]
+
+    if names is None:
+        names = list(range(d))
+    latent_names =  [f'z_{n}' for n in range(d)]
+
+    if c is None:
+        c = 'tab:blue'
 
     samples = samples[np.isfinite(samples).all(axis=1)]
 
@@ -100,11 +110,16 @@ def plot_samples(z, samples, output='./', filename='output_samples.png'):
         for i in range(d):
             for j in range(d):
                 if j < i:
-                    ax[i, j].plot(samples[:,j], samples[:,i], marker=',', linestyle='')
+                    ax[i, j].scatter(samples[:,j], samples[:,i], c=c, s=1.)
+                    ax[i, j].set_xlabel(names[j])
+                    ax[i, j].set_ylabel(names[i])
                 elif j == i:
                     ax[i, j].hist(samples[:, j], int(np.sqrt(N)), histtype='step')
+                    ax[i, j].set_xlabel(names[j])
                 else:
-                    ax[i, j].plot(z[:,j], z[:,i], marker=',', linestyle='')
+                    ax[i, j].scatter(z[:,j], z[:,i], c=c, s=1.)
+                    ax[i, j].set_xlabel(latent_names[j])
+                    ax[i, j].set_ylabel(latent_names[i])
     else:
         ax.hist(samples, int(np.sqrt(N)), histtype='step')
 
@@ -112,12 +127,14 @@ def plot_samples(z, samples, output='./', filename='output_samples.png'):
     fig.savefig(output + filename)
     plt.close('all')
 
-def plot_inputs(samples, output='./', filename='input_samples.png'):
+def plot_inputs(samples, output='./', filename='input_samples.png', names=None):
     """
     Plot n-dimensional input samples
     """
     N = samples.shape[0]
     d = samples.shape[-1]
+    if names is None:
+        names = list(range(d))
 
     fig, ax = plt.subplots(d, d, figsize=(d*3, d*3))
     if d > 1:
@@ -125,8 +142,11 @@ def plot_inputs(samples, output='./', filename='input_samples.png'):
             for j in range(d):
                 if j < i:
                     ax[i, j].plot(samples[:,j], samples[:,i], marker=',', linestyle='')
+                    ax[i, j].set_xlabel(names[j])
+                    ax[i, j].set_ylabel(names[i])
                 elif j == i:
                     ax[i, j].hist(samples[:, j], int(np.sqrt(N)), histtype='step')
+                    ax[i, j].set_xlabel(names[j])
                 else:
                     ax[i, j].set_axis_off()
     else:
@@ -164,18 +184,61 @@ def plot_comparison(truth, samples, output='./', filename='sample_comparison.png
     fig.savefig(output + filename)
     plt.close('all')
 
+def generate_contour(r, dims, N=1000):
+    """Generate a contour"""
+    x = np.array([np.random.randn(N) for _ in range(dims)])
+    R = np.sqrt(np.sum(x ** 2., axis=0))
+    z = x / R
+    return r * z.T
+
+def plot_contours(contours, output='./', filename='contours.png', names=None):
+    """Plot contours in the latent space and physical space"""
+    d = contours.shape[-1]
+    if names is None:
+        names = list(range(d))
+    latent_names =  [f'z_{n}' for n in range(d)]
+    fig, ax = plt.subplots(d, d, figsize=(d*3, d*3))
+    if d >= 2:
+        for c in contours:
+            for i in range(d):
+                for j in range(d):
+                    if j < i:
+                        ax[i, j].scatter(c[1, :,j], c[1, :,i], s=1.)
+                    elif j == i:
+                        pass
+                    else:
+                        ax[i, j].scatter(c[0, :,j], c[0, :,i], s=1.)
+        for i in range(d):
+            for j in range(d):
+                if j < i:
+                    ax[i, j].set_xlabel(names[j])
+                    ax[i, j].set_ylabel(names[i])
+                elif j == i:
+                    ax[i, j].axis('off')
+                else:
+                    ax[i, j].set_xlabel(latent_names[j])
+                    ax[i, j].set_ylabel(latent_names[i])
+        plt.tight_layout()
+        fig.savefig(output + filename)
+        plt.close('all')
+    else:
+        pass
+
+
 
 class FlowTrainer(Trainer):
 
-    def __init__(self, trainer_dict=None, manager=None, output='./', cpnest_model=None):
+    def __init__(self, trainer_dict=None, manager=None, output=None, cpnest_model=None, **kwargs):
         self.manager=None
-        super(FlowTrainer, self).__init__(manager=manager, output=output)
+        super(FlowTrainer, self).__init__(manager=manager, output=output, **kwargs)
         self.outdir = output
+        self.parameters = None
+        self.re_parameters = None
         self.logger = logging.getLogger("CPNest")
         self.intialised = False
         # define setup function
+        trainer_dict = update_trainer_dict(trainer_dict)
         self._setup_from_input_dict(trainer_dict, cpnest_model=cpnest_model)
-
 
     def save_input(self, attr_dict):
         """
@@ -193,6 +256,9 @@ class FlowTrainer(Trainer):
         """
         Setup the trainer from a dictionary
         """
+        if self.outdir is not None:
+            attr_dict.pop('outdir')
+
         if attr_dict['normalise']:
             if 'prior_bounds' not in attr_dict and cpnest_model is None:
                 raise RuntimeError('Must provided CPNest model or prior_bounds to use normalisation')
@@ -208,17 +274,30 @@ class FlowTrainer(Trainer):
             os.mkdir(self.outdir)
         self.save_input(attr_dict)
 
+        if 'mask' in self.model_dict.keys():
+            self.mask = self.model_dict.pop('mask')
+        else:
+            self.mask = None
+
+    def get_mask(self, mask):
+        """
+        Get a the mask
+        """
+        return None
+
     def initialise(self):
         """
         Intialise the model and optimiser
         """
-        self.device = torch.device(self.device_tag)
-        self.model = setup_model(**self.model_dict, device=self.device)
-        self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-6)
-
         if self.prior_bounds is not None and self.normalise:
             self.logger.info("Setting up normalisation")
             self.setup_normalisation()
+
+        self.device = torch.device(self.device_tag)
+        self.model_dict['mask'] = self.get_mask(self.mask)
+        self.model = setup_model(**self.model_dict, device=self.device)
+        self.optimiser = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-6)
+
         self.intialised = True
         self.training_count = 0
         if self.manager is not None:
@@ -278,7 +357,7 @@ class FlowTrainer(Trainer):
         samples = np.array([p.values for p in payload[1]])
         self.logger.info("Starting training setup")
 
-        self._train_on_data(samples, plot=True, iteration=iteration)
+        self._train_on_data(samples, plot=self.plot, iteration=iteration)
 
         self.logger.info("Training complete")
 
@@ -298,7 +377,8 @@ class FlowTrainer(Trainer):
         samples = samples[idx]
         if plot:
             self.logger.debug('Plotting inputs before normalisation')
-            plot_inputs(samples, output=output, filename='input_pre_norm.png')
+            plot_inputs(samples, output=output, filename='input_pre_norm.png',
+                    names=self.parameters)
 
         if self.normalise:
             self.logger.info("Using normalisation")
@@ -306,7 +386,7 @@ class FlowTrainer(Trainer):
 
         if plot:
             self.logger.debug("Flow trainer: plotting input")
-            plot_inputs(samples, output=output)
+            plot_inputs(samples, output=output, names=self.re_parameters)
 
         self.logger.debug("N input samples: {}".format(len(samples)))
 
@@ -339,7 +419,7 @@ class FlowTrainer(Trainer):
         if not os.path.isdir(block_outdir):
             os.mkdir(block_outdir)
 
-        train_loader, val_loader = self._prep_data(samples, plot=True, output=block_outdir)
+        train_loader, val_loader = self._prep_data(samples, plot=plot, output=block_outdir)
 
         # train
         if max_epochs is None:
@@ -356,7 +436,7 @@ class FlowTrainer(Trainer):
         history = dict(loss=[], val_loss=[])
 
         self.weights_file = block_outdir + 'model.pt'
-
+        self.logger.debug(f'Training with {samples.shape[0]} samples')
         for epoch in range(1, max_epochs + 1):
 
             loss = self._train(train_loader)
@@ -411,12 +491,26 @@ class FlowTrainer(Trainer):
             plot_inputs(data_latent, output=block_outdir, filename='transformed_input_samples.png')
             self.logger.info("Plotting output")
             plot_loss(epoch, history, output=block_outdir)
-            plot_samples(z, output, output=block_outdir)
+            plot_samples(z, output, output=block_outdir, names=self.re_parameters)
             if self.normalise:
                 output = self.rescale_samples(output)
-            plot_samples(z, output, output=block_outdir, filename='rescaled_output_samples.png')
+            plot_samples(z, output, output=block_outdir,
+                    filename='rescaled_output_samples.png', names=self.parameters)
+            # plot_contours
+            radii = np.linspace(0.1, 2., 4)
+            contours = np.empty([radii.shape[0], 2, 1000, self.n_inputs])
+            for i, r in enumerate(radii):
+                c = generate_contour(r, self.n_inputs, N=1000)
+                contours[i, 0] = c
+                contour_tensor = torch.from_numpy(c.astype('float32')).to(self.device)
+                with torch.no_grad():
+                    contour_phys, _ = self.model(contour_tensor)
+                contours[i, 1] =contour_phys.detach().cpu().numpy()
 
-    def _train(self, loader, noise_scale=0.):
+            plot_contours(contours, output=block_outdir, filename='contours.png', names=self.re_parameters)
+
+
+    def _train(self, loader, noise_scale=0.1):
         """
         Loop over the data and update the weights
         """

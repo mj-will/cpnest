@@ -8,8 +8,8 @@ from .cpthread import CPThread, CPCommand
 
 class Trainer(CPThread):
 
-    def __init__(self, manager=None, output='./'):
-
+    def __init__(self, manager=None, output='./', **kwargs):
+        super(Trainer, self).__init__(**kwargs)
         self.output = output
 
         if manager is not None:

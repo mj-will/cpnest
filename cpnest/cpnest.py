@@ -89,6 +89,7 @@ class CPNest(object):
                  trainer_class= None,
                  trainer_dict = None,
                  trainer_type = None,
+                 max_rejection= None,
                  n_periodic_checkpoint = None):
         if nthreads is None:
             self.nthreads = mp.cpu_count()
@@ -124,7 +125,9 @@ class CPNest(object):
                 from .flowtrainer import update_trainer_dict
                 self.trainable = True
                 self.logger.info("Trainer enabled")
+                trainer_dict['parameters'] = self.user.names
                 trainer_dict = update_trainer_dict(trainer_dict)
+                trainer_dict['outdir'] = self.output
                 self.logger.info("Updated defaults")
         else:
             self.trainable = False
@@ -161,6 +164,7 @@ class CPNest(object):
                         trainer = self.trainable,
                         trainer_type = trainer_type,
                         trainer_dict = trainer_dict,
+                        max_rejection = max_rejection,
                         n_periodic_checkpoint = n_periodic_checkpoint)
         else:
             self.NS = NestedSampler.resume(resume_file, self.manager, self.user)
