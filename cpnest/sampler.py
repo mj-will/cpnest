@@ -316,6 +316,9 @@ class Sampler(CPThread):
                         kwargs['logit_parameters'] = self.trainer_dict['logit']
                     if self.trainer_dict['q_inversion']:
                         kwargs['q_inversion'] = True
+                    if 'bilby_priors' in self.trainer_dict.keys():
+                        kwargs['bilby_priors'] = self.trainer_dict['bilby_priors']
+
                 else:
                     self.logger.debug('Using RandomFlowProposal')
                     Proposal = RandomFlowProposal
@@ -331,16 +334,22 @@ class Sampler(CPThread):
                         output=self.output + "proposal_{}/".format(os.getpid()),
                         normalise=self.trainer_dict["normalise"],
                         truncate=self.trainer_dict["truncate_proposal"],
+                        train_on_empty=self.trainer_dict["train_on_empty"],
                         **kwargs)
                 self.trainer_model = self.flow_proposal
                 self.default_proposal = self.proposal
                 self.counter = 0
                 self.accepted = 0
 
+                kwargs = dict()
+                if 'gw' in self.trainer_type:
+                    kwargs['model'] = self.model
+
                 self.naive_proposal = NaiveProposal(
                         names=self.model.names,
                         log_prior=self.model.log_prior,
-                        prior_bounds=self.model.bounds)
+                        prior_bounds=self.model.bounds,
+                        **kwargs)
             else:
                 self.flow_proposal = None
                 self.default_proposal = None
@@ -506,6 +515,13 @@ class RejectionSampler(MetropolisHastingsSampler):
             #oldparam = self.evolution_points.popleft()
             logp_old = self.model.log_prior(oldparam)
             while True:
+                # Check if proposal is empty
+                # if empty yield False which forces training to start
+                if self.proposal.empty:
+                    # Reset flag
+                    self.proposal.empty = False
+                    newparam = False
+                    break
 
                 sub_counter += 1
                 newparam = self.proposal.get_sample(oldparam.copy())
@@ -523,17 +539,22 @@ class RejectionSampler(MetropolisHastingsSampler):
                     self.max_count += 1
                     break
 
+
             # Put sample back in the stack, unless that sample led to zero accepted points
-            if sub_accepted:
-                self.evolution_points.append(oldparam)
-            if self.verbose >=3:
-                self.samples.append(oldparam)
-            self.sub_acceptence = float(sub_accepted) / float(sub_counter)
-            self.proposal_stats.append([0, sub_counter, sub_accepted])
-            self.mcmc_accepted += sub_accepted
-            self.mcmc_counter += sub_counter
-            # Yield the new sample
-            yield (sub_counter, oldparam)
+            if newparam:
+                if sub_accepted:
+                    self.evolution_points.append(oldparam)
+                if self.verbose >=3:
+                    self.samples.append(oldparam)
+                self.sub_acceptence = float(sub_accepted) / float(sub_counter)
+                self.proposal_stats.append([0, sub_counter, sub_accepted])
+                self.mcmc_accepted += sub_accepted
+                self.mcmc_counter += sub_counter
+                # Yield the new sample
+                yield (sub_counter, oldparam)
+            else:
+                yield 0, False
+
 
 
 class HamiltonianMonteCarloSampler(Sampler):
