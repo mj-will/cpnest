@@ -43,8 +43,6 @@ def plot_flows(model, n_inputs, N=1000, inputs=None, cond_inputs=None, mode='inv
             inputs, _ = module(inputs, cond_inputs, mode)
             outputs.append(inputs.detach().cpu().numpy())
 
-    print(len(outputs))
-
     n = int(len(outputs) / 2) + 1
     m = 1
 
@@ -103,6 +101,24 @@ def setup_model(n_inputs=None,  n_conditional_inputs=None, augment_dim=None,
                 blocks += [CouplingLayer(n_inputs, n_neurons, mask,
                                          num_cond_inputs=n_conditional_inputs,
                                          num_layers=n_layers),
+                           BatchNormFlow(n_inputs)]
+                mask = 1 - mask
+            model = FlowSequential(*blocks)
+        else:
+            for n in range(n_blocks):
+                blocks += [AugmentedBlock(n_inputs, augment_dim, n_layers, n_neurons)]
+
+            model = AugmentedSequential(*blocks).to(device)
+            model.augment_dim = augment_dim
+
+    elif ftype == 'realnvp_joint':
+        if augment_dim is None:
+            if mask is None:
+                mask = torch.remainder(torch.arange(0, n_inputs, dtype=torch.float, device=device), 2)
+            else:
+                mask = torch.from_numpy(mask.astype('float32')).to(device)
+            for _ in range(n_blocks):
+                blocks += [JointCouplingLayer(n_inputs, mask, n_neurons=n_neurons, n_layers=n_layers),
                            BatchNormFlow(n_inputs)]
                 mask = 1 - mask
             model = FlowSequential(*blocks)
@@ -562,6 +578,69 @@ class CouplingLayer(nn.Module):
             s = torch.exp(-log_s)
             return (inputs - t) * s, -log_s.sum(-1, keepdim=True)
 
+class Transform(nn.Module):
+    """
+    Basic neural net to perform encoding or decoding
+    """
+    def __init__(self, in_dim, out_dim, n_neurons, n_layers=2):
+        super(Transform, self).__init__()
+        layers = [nn.Linear(in_dim, n_neurons), Swish()]
+        for _ in range(0, n_layers):
+            layers += [nn.Linear(n_neurons, n_neurons), Swish()]
+        # no activation after output layer,
+        # split is handled seperately
+        layers += [nn.Linear(n_neurons, 2 * out_dim)]
+
+        with torch.no_grad():
+            layers[-1].weight.data.fill_(0.)
+            layers[-1].bias.data.fill_(0.)
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        """
+        Forward pass
+        """
+        x = self.net(x)
+        x_s, x_m = torch.split(x, x.shape[-1] // 2, dim=1)
+        x_s = torch.nn.functional.logsigmoid(x_s)
+        x_s = torch.clamp(x_s, min=-2.5, max=2.5)
+        return x_s, x_m
+
+
+class JointCouplingLayer(nn.Module):
+    """
+
+    """
+    def __init__(self, n_inputs, mask, n_layers=2, n_neurons=64):
+        """
+        Intialise the block
+        """
+        super(JointCouplingLayer, self).__init__()
+        self.mask = mask
+        self.transform_network = Transform(n_inputs, n_inputs, n_neurons, n_layers)
+
+    def forward(self, inputs, cond_inputs=None, mode='forward'):
+        """
+        Forward or backwards pass
+        """
+        mask = self.mask
+        masked_inputs = inputs * mask
+        if cond_inputs is not None:
+            raise RuntimeError('Conditional inputs not implemented for Trasnform')
+
+        if mode == 'direct':
+            log_s, m = self.transform_network(masked_inputs)
+            log_s *= (1 - mask)
+            m *= (1 - mask)
+            s = torch.exp(log_s)
+            return inputs * s + m, log_s.sum(-1, keepdim=True)
+        else:
+            log_s, m = self.transform_network(masked_inputs)
+            log_s *= (1 - mask)
+            m *= (1 - mask)
+            s = torch.exp(-log_s)
+            return (inputs - m) * s, -log_s.sum(-1, keepdim=True)
 
 class FlowSequential(nn.Sequential):
     """ A sequential container for flows.
@@ -613,35 +692,48 @@ def swish(x):
     """Swish activation function"""
     return torch.mul(x, torch.sigmoid(x))
 
-
-class Transform(nn.Module):
-    """
-    Basic neural net to perform encoding or decoding
-    """
-    def __init__(self, in_dim, out_dim, n_neurons):
-        super(Transform, self).__init__()
-
-        self.linear1 = nn.Linear(in_dim, n_neurons)
-        self.linear2 = nn.Linear(n_neurons, n_neurons)
-        self.linear3 = nn.Linear(n_neurons, 2 * out_dim)
-
-        with torch.no_grad():
-            self.linear3.weight.data.fill_(0.)
-            self.linear3.bias.data.fill_(0.)
+class Swish(nn.Module):
+    def __init__(self):
+        '''
+        Init method.
+        '''
+        super().__init__() # init the base class
 
     def forward(self, x):
-        """
-        Forward pass
-        """
-        x = self.linear1(x)
-        x = swish(x)
-        x = self.linear2(x)
-        x = swish(x)
-        x = self.linear3(x)
-        x_s, x_m = torch.split(x, x.shape[-1] // 2, dim=1)
-        x_s = torch.nn.functional.logsigmoid(x_s)
-        x_s = torch.clamp(x_s, min=-2.5, max=2.5)
-        return x_s, x_m
+        '''
+        Forward pass of the function.
+        '''
+        return swish(x) # simply apply already implemented SiLU
+
+
+#class Transform(nn.Module):
+#    """
+#    Basic neural net to perform encoding or decoding
+#    """
+#    def __init__(self, in_dim, out_dim, n_neurons, n_layers=2):
+#        super(Transform, self).__init__()
+#
+#        self.linear1 = nn.Linear(in_dim, n_neurons)
+#        self.linear2 = nn.Linear(n_neurons, n_neurons)
+#        self.linear3 = nn.Linear(n_neurons, 2 * out_dim)
+#
+#        with torch.no_grad():
+#            self.linear3.weight.data.fill_(0.)
+#            self.linear3.bias.data.fill_(0.)
+#
+#    def forward(self, x):
+#        """
+#        Forward pass
+#        """
+#        x = self.linear1(x)
+#        x = swish(x)
+#        x = self.linear2(x)
+#        x = swish(x)
+#        x = self.linear3(x)
+#        x_s, x_m = torch.split(x, x.shape[-1] // 2, dim=1)
+#        x_s = torch.nn.functional.logsigmoid(x_s)
+#        x_s = torch.clamp(x_s, min=-2.5, max=2.5)
+#        return x_s, x_m
 
 
 class AugmentedBlock(nn.Module):
