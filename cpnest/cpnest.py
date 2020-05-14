@@ -165,6 +165,7 @@ class CPNest(object):
                         trainer_type = trainer_type,
                         trainer_dict = trainer_dict,
                         max_rejection = max_rejection,
+                        acceptance_threshold = 1 / maxmcmc,
                         n_periodic_checkpoint = n_periodic_checkpoint)
         else:
             self.NS = NestedSampler.resume(resume_file, self.manager, self.user)
