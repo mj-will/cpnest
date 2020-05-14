@@ -149,6 +149,7 @@ class NestedSampler(object):
                  trainer_type   = None,
                  trainer_dict   = None,
                  max_rejection  = None,
+                 acceptance_threshold = 0.1,
                  n_periodic_checkpoint = None):
         """
         Initialise all necessary arguments and
@@ -222,6 +223,10 @@ class NestedSampler(object):
             else:
                 self.cooldown = self.nthreads
 
+            self.block_acceptance = 1.
+            self.block_iteration = 0
+            self.block_jumps = 0
+            self.acceptance_threshold = acceptance_threshold
             self.n_likelihood_evaluations = None
             self.logger.info("Training enabled in nested sampling")
 
@@ -295,45 +300,65 @@ class NestedSampler(object):
         np.random.shuffle(self.worst)
         for k in self.worst:
             self.iteration += 1
+            if self.trainer:
+                self.block_iteration += 1
             loops           = 0
-            updated = False
+            updated = False # Flag to prevent flow from being updated multiple times
             while(True):
                 loops += 1
                 acceptance, sub_acceptance, self.jumps, proposed = self.manager.consumer_pipes[self.queue_counter].recv()
-                if proposed.logL > self.logLmin.value:
+                if not proposed:
+                    # If no point was proposed becase proposal is empty
+                    # retrain the flow and then resubmit point, this
+                    # does not count as rejected point
+                    self.train(wait=True)
+                    self.state_update(force=True, force_train=False)
+                    self.last_updated = self.iteration
+                    updated = True
+                    self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
+
+                elif proposed.logL > self.logLmin.value:
+                    # Assuming point was proposed
                     # replace worst point with new one
                     self.params[k]     = proposed
                     self.queue_counter = (self.queue_counter + 1) % len(self.manager.consumer_pipes)
                     self.accepted += 1
+                    if self.trainer:
+                        self.block_jumps += self.jumps
                     break
                 else:
                     if self.trainer:
-                        # it it reaches the max number of rejected points
+                        # if it reaches the max number of rejected points
                         # it will break and force the trainer to retrain
-                        if loops > 1 and not updated:
+
+                        # Intially will only try to retrain if the accpetance has dropped
+                        # and the more then #cooldown iterations have passed
+                        if loops > 1 and not updated and (self.block_acceptance < self.acceptance_threshold):
                             self.retrain = False
                             if (self.iteration - self.last_updated) > self.cooldown:
                                 # force state update
                                 self.logger.debug("Forcing update")
-                                # wait for training to exit
-                                if not self.manager.training.value:
-                                    self.train()
-                                self.logger.debug("Waiting for training")
-                                self.manager.stop_training.value = 1
-                                while not self.manager.trained.value:
-                                    pass
-                                self.manager.stop_training.value = 0
+                                self.train(wait=True)
                                 self.state_update(force=True, force_train=False)
-                                self.last_updated = self.iteration
                                 updated = True
                             else:
                                 self.logger.debug(f'Tried to force update, but cooldown ({self.cooldown}) not reached, continuing')
                                 updated = True   # tried to update, so should not try again
-                                #self.logger.debug("Using previous update {}".format(self.last_update))
-                                #self.state_update(force=True, weights_file=self.weights_file)
                             self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
                             self.rejected += 1
-                        # resend it to the producer
+                        # If after producing 10 times the maxmcmc it still can not
+                        # find a replacement then train irrespective of state
+                        # and reset current counters
+                        elif loops > 10 and not updated:
+                            self.logger.warning('Could not produce replacement live point after 10 trys, retraining')
+                            self.logger.warning(f'Likelihood of current point: {self.logLmin.value}')
+                            loops = 0
+                            self.train(wait=True)
+                            self.state_update(force=True, force_train=False)
+                            updated = True
+                            self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
+                            self.rejected += 1
+                        # else resend it to the producer
                         else:
                             self.manager.consumer_pipes[self.queue_counter].send(CPCommand('sample', self.params[k]))
                             self.rejected += 1
@@ -342,6 +367,8 @@ class NestedSampler(object):
                         self.rejected += 1
 
             self.acceptance = float(self.accepted)/float(self.accepted + self.rejected)
+            if self.trainer:
+                self.block_acceptance = self.block_iteration / self.block_jumps
             if self.verbose:
                 self.logger.info("{0:d}: n:{1:4d} NS_acc:{2:.3f} S{3:d}_acc:{4:.3f} sub_acc:{5:.3f} H: {6:.2f} logL {7:.5f} --> {8:.5f} dZ: {9:.3f} logZ: {10:.3f} logLmax: {11:.2f}"\
                 .format(self.iteration, self.jumps*loops, self.acceptance, k, acceptance, sub_acceptance, self.state.info,\
@@ -373,6 +400,7 @@ class NestedSampler(object):
                     while i < self.Nlive:
                         acceptance,sub_acceptance,self.jumps,self.params[i] = self.manager.consumer_pipes[self.queue_counter].recv()
                         self.queue_counter = (self.queue_counter + 1) % len(self.manager.consumer_pipes)
+                        print(self.params[i].LogL)
                         if self.params[i].logP!=-np.inf and self.params[i].logL!=-np.inf:
                             i+=1
                             pbar.update()
@@ -449,6 +477,9 @@ class NestedSampler(object):
                     if self.last_updated:
                         break
                 self.logger.info('Finished naive sampling')
+
+            # Force an update
+            self.state_update(force=True, force_train=True)
 
             while self.condition > self.tolerance:
 
@@ -545,6 +576,8 @@ class NestedSampler(object):
             if self.manager.enable_flow.value or force:
                 self.logger.info("Updating flow")
                 self.last_updated = self.iteration
+                self.block_iteration = 0
+                self.block_jumps = 0
                 for c in self.manager.consumer_pipes:
                     c.send(CPCommand('set_weights', payload=self.weights_file))
                 if not self.flow_enabled:
