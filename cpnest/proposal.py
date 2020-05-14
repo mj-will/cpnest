@@ -279,6 +279,8 @@ class NaiveProposal(EnsembleProposal):
         self.populated = False
         self.N = N
 
+        self.empty = False
+
     def make_live_point(self, theta):
         """Create an instance of LivePoint with the given inputs"""
         return LivePoint(self.names, d=theta)
@@ -326,8 +328,10 @@ class FlowProposal(EnsembleProposal):
     torch = __import__('torch')
     log_J = 0.0
 
-    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu', prior_bounds=None, proposal='gaussian', proposal_size=10000, fuzz=1.0, setup=None, normalise=True,
-            initialise=True, **kwargs):
+    def __init__(self, model_dict=None, names=None, log_prior=None, device='cpu',
+            prior_bounds=None, proposal='gaussian', proposal_size=10000, fuzz=1.0,
+            setup=None, normalise=True, initialise=True, train_on_empty=False,
+            **kwargs):
 
         super(FlowProposal, self).__init__()
         self.logger = logging.getLogger("CPNest")
@@ -341,6 +345,7 @@ class FlowProposal(EnsembleProposal):
         self.samples = None                    # Stored samples
         self.populated = False                 # Is sample list populated
         self.fuzz = fuzz
+        self.train_on_empty = train_on_empty
 
         if proposal == 'uniform':
             self.logger.debug('Using uniform proposal')
@@ -350,6 +355,7 @@ class FlowProposal(EnsembleProposal):
             self.logger.debug('Using default gaussian proposal')
             self.prior = self.gaussian_prior
             self.draw = self.draw_trunc
+        self.proposal = proposal
 
         self.log_prior = log_prior
         self.previous_sample = None
@@ -527,6 +533,7 @@ class RandomFlowProposal(FlowProposal):
         super(RandomFlowProposal, self).__init__(**kwargs)
         self.output = os.path.join(output, '')
         os.makedirs(self.output, exist_ok=True)
+        self.empty = False
         self.count = 0
         #self.draw = self.draw_trunc
 
@@ -615,6 +622,8 @@ class RandomFlowProposal(FlowProposal):
         if not self.indices.size:
             self.populated = False
             self.logger.debug('Pool of points is empty')
+            if self.train_on_empty:
+                self.empty = True
         # make live point and return
         return new_sample
 
