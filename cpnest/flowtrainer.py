@@ -43,6 +43,8 @@ def update_trainer_dict(d):
                    fuzz=1.0,                   # fuzz factor for radius of contours
                    memory=False,               # memory in number of epochs
                    plot=True,                  # produce diagonostic plots
+                   train_on_empty=False,       # Retrain flow when proposal is empty
+                   weights_reset=1,            # Reset weights every n training batches
                    model_dict=default_model)
 
     if not isinstance(d, dict):
@@ -85,8 +87,6 @@ def plot_loss(epoch, history, output='./'):
     plt.legend()
     plt.tight_layout()
     fig.savefig(output + 'loss.png')
-    plt.yscale('log')
-    fig.savefig(output + 'loss_log.png')
     plt.close('all')
 
 def plot_samples(z, samples, output='./', filename='output_samples.png', names=None, c=None):
@@ -245,6 +245,8 @@ class FlowTrainer(Trainer):
         Save the dictionary used as an inputs as a JSON file
         """
         d = attr_dict.copy()
+        # Pop bilby priors object if present
+        d.pop('bilby_priors', None)
         output_file = self.outdir + "trainer_dict.json"
         for k, v in list(d.items()):
             if type(v) == np.ndarray:
@@ -409,10 +411,10 @@ class FlowTrainer(Trainer):
         if not self.intialised:
             self.logger.info("Initialising")
             self.initialise()
-
-        elif self.training_count:
-            self.logger.info("Reseting weights")
-            self._reset_model()
+        elif self.weights_reset:
+            if self.weights_reset == 1 or not self.training_count % self.weights_reset:
+                self.logger.info("Reseting weights")
+                self._reset_model()
 
         block_outdir = "{}block{}/".format(self.outdir, self.training_count)
 
@@ -452,7 +454,7 @@ class FlowTrainer(Trainer):
             if not epoch % 50:
                 self.logger.info(f"Epoch {epoch}: loss: {loss:.3}, val loss: {val_loss:.3}")
 
-            if epoch - best_epoch > patience:
+            if epoch - best_epoch > patience and epoch > 100:
                 self.logger.info(f"Epoch {epoch}: Reached patience")
                 break
 
@@ -510,7 +512,7 @@ class FlowTrainer(Trainer):
             plot_contours(contours, output=block_outdir, filename='contours.png', names=self.re_parameters)
 
 
-    def _train(self, loader, noise_scale=0.1):
+    def _train(self, loader, noise_scale=0.0):
         """
         Loop over the data and update the weights
         """
