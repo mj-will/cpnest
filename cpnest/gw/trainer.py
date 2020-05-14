@@ -20,6 +20,10 @@ class GWFlowTrainer(GWReparam, FlowTrainer):
                 kwargs['logit_parameters'] = kwargs['trainer_dict']['logit']
         if 'q_inversion' in kwargs['trainer_dict'].keys():
                 kwargs['q_inversion'] = kwargs['trainer_dict']['q_inversion']
+        if 'bilby_priors' in kwargs['trainer_dict'].keys():
+            print('Removing bibly priors for JSON')
+            #kwargs['trainer_dict'].pop('bilby_priors')
+
         super(GWFlowTrainer, self).__init__(parameters=parameters, **kwargs)
         # update mask to array
         if 'mask' in self.model_dict.keys():
