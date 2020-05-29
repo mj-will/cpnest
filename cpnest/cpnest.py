@@ -90,6 +90,7 @@ class CPNest(object):
                  trainer_dict = None,
                  trainer_type = None,
                  max_rejection= None,
+                 analytic_priors = False,
                  n_periodic_checkpoint = None):
         if nthreads is None:
             self.nthreads = mp.cpu_count()
@@ -118,6 +119,7 @@ class CPNest(object):
         self.posterior_samples = None
         self.user     = usermodel
         self.resume = resume
+        self.analytic_priors = analytic_priors
         if trainer_class is not None:
             if None in [trainer_class, trainer_dict, trainer_type]:
                 raise ValueError("If using a trainer must specifiy three arguments: trainer_class, trainer_dict, trainer_type")
@@ -166,14 +168,16 @@ class CPNest(object):
                         trainer_dict = trainer_dict,
                         max_rejection = max_rejection,
                         acceptance_threshold = 1 / maxmcmc,
+                        analytic_priors = self.analytic_priors,
                         n_periodic_checkpoint = n_periodic_checkpoint)
         else:
             self.NS = NestedSampler.resume(resume_file, self.manager, self.user)
 
+
         # instaniate the neural network if used
         if self.trainable:
             if not os.path.exists(resume_file) or resume == False:
-                trainer = trainer_class(trainer_dict=trainer_dict,
+                trainer = trainer_class(trainer_dict=trainer_dict.copy(),
                         manager=self.manager, output=output,
                         cpnest_model=self.user)
             else:
@@ -193,6 +197,7 @@ class CPNest(object):
                                   proposal    = proposals['mhs'](),
                                   resume_file = resume_file,
                                   manager     = self.manager,
+                                  analytic_priors = self.analytic_priors,
                                   trainer_type = trainer_type,
                                   trainer_dict = trainer_dict
                                   )
@@ -216,6 +221,7 @@ class CPNest(object):
                                   proposal    = proposals['hmc'](model=self.user),
                                   resume_file = resume_file,
                                   manager     = self.manager,
+                                  analytic_priors = self.analytic_priors,
                                   trainer_type = trainer_type,
                                   trainer_dict = trainer_dict
                                   )
