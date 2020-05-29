@@ -322,6 +322,21 @@ class NaiveProposal(EnsembleProposal):
             self.populated = False
         return new_sample
 
+class AnalyticNaiveProposal(EnsembleProposal):
+    """
+    Draw from analytic priors for rejection sampling
+
+    Inhereits from EnsembleProposal for `set_ensemble` method
+    """
+    def __init__(self, model=None, **kwargs):
+        """Intialise"""
+        self.new_point = model.new_point
+        self.empty = False
+
+    def get_sample(self, old_sample):
+        """Draw a sample from the GW priors"""
+        return self.new_point()
+
 
 class FlowProposal(EnsembleProposal):
 
