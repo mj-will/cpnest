@@ -150,6 +150,7 @@ class NestedSampler(object):
                  trainer_dict   = None,
                  max_rejection  = None,
                  acceptance_threshold = 0.1,
+                 analytic_priors = False,
                  n_periodic_checkpoint = None):
         """
         Initialise all necessary arguments and
@@ -185,6 +186,8 @@ class NestedSampler(object):
         header.write('\t'.join(self.model.names))
         header.write('\tlogL\n')
         header.close()
+
+        self.analytic_priors = analytic_priors
 
         if max_rejection is not None:
             self.max_rejection = max_rejection
@@ -400,7 +403,6 @@ class NestedSampler(object):
                     while i < self.Nlive:
                         acceptance,sub_acceptance,self.jumps,self.params[i] = self.manager.consumer_pipes[self.queue_counter].recv()
                         self.queue_counter = (self.queue_counter + 1) % len(self.manager.consumer_pipes)
-                        print(self.params[i].LogL)
                         if self.params[i].logP!=-np.inf and self.params[i].logL!=-np.inf:
                             i+=1
                             pbar.update()
@@ -448,8 +450,16 @@ class NestedSampler(object):
         """
         main nested sampling loop
         """
+
+        # If the priors are analytic we don't need to use MCMC sampling
+
+
         if not self.initialised:
             self.initialise_trainers()
+            if self.analytic_priors:
+                print('Enabling analytic priors')
+                for c in self.manager.consumer_pipes:
+                    c.send(CPCommand('switch_proposal', 'naive'))
             self.reset()
         if self.prior_sampling:
             for i in range(self.Nlive):
@@ -478,8 +488,8 @@ class NestedSampler(object):
                         break
                 self.logger.info('Finished naive sampling')
 
-            # Force an update
-            self.state_update(force=True, force_train=True)
+                # Force an update
+                self.state_update(force=True, force_train=True)
 
             while self.condition > self.tolerance:
 

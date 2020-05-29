@@ -72,6 +72,7 @@ class Sampler(CPThread):
                  proposal    = None,
                  resume_file = None,
                  manager     = None,
+                 analytic_priors = False,
                  trainer_type = None,
                  trainer_dict = None,
                  ):
@@ -84,6 +85,7 @@ class Sampler(CPThread):
         self.manager = manager
         self.logLmin = self.manager.logLmin
         self.logLmax = self.manager.logLmax
+        self.analytic_priors = analytic_priors
 
         self.logger         = logging.getLogger('CPNest')
 
@@ -293,7 +295,7 @@ class Sampler(CPThread):
         if not self.trainer_initialised:
             if 'flow' in self.trainer_type:
                 kwargs = {}
-                from .proposal import RandomFlowProposal, LogitFlowProposal, NaiveProposal, AugmentedFlowProposal
+                from .proposal import RandomFlowProposal, LogitFlowProposal, NaiveProposal, AugmentedFlowProposal, AnalyticNaiveProposal
                 try:
                     device = self.trainer_dict["proposal_device"]
                 except:
@@ -307,21 +309,21 @@ class Sampler(CPThread):
                 elif 'aug' in self.trainer_type:
                     self.logger.debug('Using AugmentedFlowProposal')
                     Proposal = AugmentedFlowProposal
+
                 elif 'gw' in self.trainer_type:
                     self.logger.debug('Using GWFlowProposal')
                     from .gw.proposal import GWFlowProposal, GWNaiveProposal
                     Proposal = GWFlowProposal
-                    NaiveProposal = GWNaiveProposal
-                    if self.trainer_dict['logit']:
-                        kwargs['logit_parameters'] = self.trainer_dict['logit']
-                    if self.trainer_dict['q_inversion']:
-                        kwargs['q_inversion'] = True
+                    NaiveProposal = AnalyticNaiveProposal
                     if 'bilby_priors' in self.trainer_dict.keys():
                         kwargs['bilby_priors'] = self.trainer_dict['bilby_priors']
 
                 else:
                     self.logger.debug('Using RandomFlowProposal')
                     Proposal = RandomFlowProposal
+                # any reparameterisations, will be ignored by default
+                kwargs['reparameterisations'] = self.trainer_dict['reparameterisations']
+
                 self.flow_proposal = Proposal(
                         model_dict=self.trainer_dict["model_dict"],
                         names=self.model.names,
