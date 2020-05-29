@@ -10,7 +10,10 @@ import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
 from scipy import stats as stats
-import hdbscan
+try:
+    import hdbscan
+except:
+    print('Could not import hdbscan, ClusterTrainer will no work')
 
 import matplotlib.pyplot as plt
 
@@ -45,6 +48,7 @@ def update_trainer_dict(d):
                    plot=True,                  # produce diagonostic plots
                    train_on_empty=False,       # Retrain flow when proposal is empty
                    weights_reset=1,            # Reset weights every n training batches
+                   reparameterisations={},    # Reparameterisations used with additional classes
                    model_dict=default_model)
 
     if not isinstance(d, dict):
@@ -96,6 +100,11 @@ def plot_samples(z, samples, output='./', filename='output_samples.png', names=N
     N = samples.shape[0]
     d = samples.shape[-1]
 
+    latent = True
+    if z.shape[-1] != d:
+        print('Not plotting latent space')
+        latent = False
+
     if names is None:
         names = list(range(d))
     latent_names =  [f'z_{n}' for n in range(d)]
@@ -117,9 +126,12 @@ def plot_samples(z, samples, output='./', filename='output_samples.png', names=N
                     ax[i, j].hist(samples[:, j], int(np.sqrt(N)), histtype='step')
                     ax[i, j].set_xlabel(names[j])
                 else:
-                    ax[i, j].scatter(z[:,j], z[:,i], c=c, s=1.)
-                    ax[i, j].set_xlabel(latent_names[j])
-                    ax[i, j].set_ylabel(latent_names[i])
+                    if latent:
+                        ax[i, j].scatter(z[:,j], z[:,i], c=c, s=1.)
+                        ax[i, j].set_xlabel(latent_names[j])
+                        ax[i, j].set_ylabel(latent_names[i])
+                    else:
+                        ax[i, j].axis('off')
     else:
         ax.hist(samples, int(np.sqrt(N)), histtype='step')
 
@@ -237,7 +249,7 @@ class FlowTrainer(Trainer):
         self.logger = logging.getLogger("CPNest")
         self.intialised = False
         # define setup function
-        trainer_dict = update_trainer_dict(trainer_dict)
+        trainer_dict = update_trainer_dict(trainer_dict.copy())
         self._setup_from_input_dict(trainer_dict, cpnest_model=cpnest_model)
 
     def save_input(self, attr_dict):
@@ -245,12 +257,16 @@ class FlowTrainer(Trainer):
         Save the dictionary used as an inputs as a JSON file
         """
         d = attr_dict.copy()
+        d['model_dict'] = attr_dict['model_dict'].copy()
         # Pop bilby priors object if present
         d.pop('bilby_priors', None)
         output_file = self.outdir + "trainer_dict.json"
         for k, v in list(d.items()):
             if type(v) == np.ndarray:
                 d[k] = np.array_str(d[k])
+        for k, v in list(d['model_dict'].items()):
+            if type(v) == np.ndarray:
+                d['model_dict'][k] = np.array_str(d['model_dict'][k])
         with open(output_file, "w") as f:
             json.dump(d, f, indent=4)
 
@@ -277,7 +293,7 @@ class FlowTrainer(Trainer):
         self.save_input(attr_dict)
 
         if 'mask' in self.model_dict.keys():
-            self.mask = self.model_dict.pop('mask')
+            self.mask = self.model_dict['mask'].copy()
         else:
             self.mask = None
 
