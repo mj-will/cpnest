@@ -93,37 +93,40 @@ def log_jacobian_inverse_logit(x):
     """
     return x - 2 * np.log(1. + np.exp(x))
 
+
 class GWReparam:
 
-    def __init__(self, parameters=None, logit_parameters=[], q_inversion=False, **kwargs):
+    def __init__(self, parameters=None, reparameterisations={}, **kwargs):
+
         super(GWReparam, self).__init__(**kwargs)
-        self.parameters = parameters.copy()
-        self.re_parameters = parameters.copy()
-        self.base_dim = len(self.parameters)
-        self.reparam_dim = len(self.parameters)
-        self.parameter_indices = False
-        # possible reparameterisations
-        self.reparameterisations = []
-        self.psi = False
-        self.psi_scale = 2.0
-        self.phase = False
-        self.phase_scale = 1.0
-        self.ra = False
-        self.dec = False
-        self.sky_radial = False
-        # logit parameters
-        self.logit_parameters = logit_parameters
-        print('logit parameters:', logit_parameters)
-        self.q_inversion = q_inversion
-        if self.q_inversion:
-            print('Using q inversion')
-        self.prior_min = None
-        self.prior_max = None
+        self.parameters = parameters.copy()           # base parameter names
+        self.re_parameters = parameters.copy()        # reparameterised names
+        self.base_dim = len(self.parameters)          # size of base space
+        self.reparam_dim = len(self.parameters)       # size of reparam sapce
+        self.parameter_indices = False                # indices of relevant parameters
+        self.reparameterisations = []                 # list of reparameterisations
+
+        self.set_reparameterisations(reparameterisations)
+
+        self.logit_parameters = []
 
         self._angles = ['phi_12', 'phi_jl']
         self.angle_indices = []
         self.angle_scales = []
 
+        self.prior_min = None
+        self.prior_max = None
+
+
+    def set_reparameterisations(self, reparameterisations):
+        """Set the relevant reparamterisation flags"""
+        defaults = dict(q_inversion=True, flip=False, reduced_quaternions=True,
+                distance_rescaling=False)
+        defaults.update(reparameterisations)
+        print('Reparameterisations:')
+        for k, v in defaults.items():
+            print(f'{k}: {v}')
+            setattr(self, k, v)
 
     @property
     def extrinsic_parameters(self):
@@ -156,7 +159,7 @@ class GWReparam:
                 self._angles.append(a)
         return self._angles
 
-    def setup_angle(self, name, radial_name=False, scale=1.0):
+    def setup_angle(self, name, radial_name=False, scale=1.0, log_radial=False):
         """Add an angular parameter to the list of reparameterisations"""
         a = self.parameters.index(name)
         self.defaults.remove(a)
@@ -177,6 +180,7 @@ class GWReparam:
         # remove from normalisation
         # add to labels
         self.reparameterisations.append(name)
+        self.log_radial.append(log_radial)
 
     def setup_parameter_indices(self):
         """
@@ -186,10 +190,18 @@ class GWReparam:
         self.defaults = list(range(self.base_dim))
         self.re_parameters = self.parameters.copy()
         self.reparameterisations = []
+        self.log_radial = []
+        self.search_angles = []
 
         for s in self.source_angles:
             if s in self.parameters:
-                raise RuntimeError(f'{s} should NOT be used with GWFlows')
+                if s == 'phase':
+                    scale = 1.0
+                else:
+                    scale = 2.0
+                self.setup_angle(s, scale=scale)
+                self.search_angles.append(s)
+                #raise RuntimeError(f'{s} should NOT be used with GWFlows')
 
         if all(p in self.parameters for p in['ra', 'dec']):
             self.ra = self.parameters.index('ra')
@@ -219,16 +231,26 @@ class GWReparam:
         self.quaternions = []
         if 'q_0' in self.parameters:
             print('Removing quaternions from normalisation')
+            if self.distance_rescaling:
+                self.dL = self.parameters.index('luminosity_distance')
+                self.defaults.remove(self.dL)
+                self.reparam_dim -= 1
+
             for i in range(4):
                 j = self.parameters.index(f'q_{i}')
-                self.quaternions.append(j)
                 self.defaults.remove(j)
+                self.quaternions.append(j)
+
+
+            if self.distance_rescaling:
+                self.quaternions_out = [q - 1 for q in self.quaternions]
+
 
         # setup tilt angles and spin magnitudes if present
         for i in [1, 2]:
             if f'tilt_{i}' in self.parameters:
                 if f'a_{i}' in self.parameters:
-                    self.setup_angle(f'tilt_{i}', f'a_{i}', scale=2.0)
+                    self.setup_angle(f'tilt_{i}', f'a_{i}', scale=2.0, log_radial=False)
                 else:
                     self.setup_angle(f'tilt_{i}', scale=2.0)
 
@@ -247,25 +269,27 @@ class GWReparam:
             self.time_offset = self.prior_bounds[self.time, 0] \
                     + np.ptp(self.prior_bounds[self.time]) / 2
             self.prior_bounds[self.time] -= self.time_offset
-            print(self.prior_bounds[self.time])
             self.reparameterisations.append('time')
             self.defaults.remove(self.time)
 
         # mass ratio is last because of relation to other parameters
         if 'mass_ratio' in self.parameters:
             if 'mass_ratio' in self.logit_parameters:
-                self.mass_ratio = self.parameters.index('mass_ratio')
-                self.mass_ratio_logit = self.mass_ratio
-                self.defaults.remove(self.mass_ratio)
-                self.re_parameters[self.mass_ratio] = 'mass_ratio_logit'
-                self.reparameterisations.append('mass_ratio')
+                raise NotImplementedError('Logit has been removed for GW')
+                #self.mass_ratio = self.parameters.index('mass_ratio')
+                #self.mass_ratio_logit = self.mass_ratio
+                #self.defaults.remove(self.mass_ratio)
+                #self.re_parameters[self.mass_ratio] = 'mass_ratio_logit'
+                #self.reparameterisations.append('mass_ratio')
             elif self.q_inversion:
                 self.mass_ratio = self.parameters.index('mass_ratio')
                 self.defaults.remove(self.mass_ratio)
                 self.re_parameters[self.mass_ratio] = 'mass_ratio_inv'
                 self.reparameterisations.append('mass_ratio')
-                if 'phase' in self.parameters:
-                    raise RuntimeError('You should avoid phase, use quaternions!')
+
+                if 'phase' in self.search_angles:
+                    phase_index = self.angle_indices[self.search_angles.index('phase')]
+                    self.phase_x, self.phase_y = phase_index[:2]
                 if 'tilt_1' in self.parameters:
                     raise RuntimeError('Flow proposal not implemented for spins')
 
@@ -305,7 +329,35 @@ class GWReparam:
                     self.prior_bounds[self.time, 0], self.prior_bounds[self.time, 1])
 
         if self.quaternions:
-            samples_out[:, self.quaternions] = samples[:, self.quaternions]
+            q = samples[:, self.quaternions]
+            if self.flip:
+                A = np.where((q[:,0] >= 0) & (q[:,3] >= 0))[0]
+                B = np.where((q[:,0] >= 0) & (q[:,3] < 0))[0]
+                C = np.where((q[:,0] < 0) & (q[:,3] >= 0))[0]
+                D = np.where((q[:,0] < 0) & (q[:,3] < 0))[0]
+                z = q.copy()
+                z[D, :] *= -1    # rotation by 2 pi in gamma
+#z[C, :] *= #-1
+                z[B, 0] = -q[B, 3]   # rotation by pi in alpha
+                z[B, 1] = -q[B, 2]
+                z[B, 2] = q[B, 1]
+                z[B, 3] = q[B, 0]
+                z[C, 0] = q[C, 3]     # rotation by -pi in alpha
+                z[C, 1] = q[C, 2]
+                z[C, 2] = -q[C, 1]
+                z[C, 3] = -q[C, 0]
+                #q /= np.sqrt(np.sum(q ** 2., axis=1))[:, np.newaxis]
+                q = z.copy()
+
+            if self.distance_rescaling:
+                q /= np.sqrt(np.sum(q ** 2, axis=1))[:, np.newaxis]
+                dL_rescaled = rescale_0_to_1(samples[:, self.dL],
+                        xmin=self.prior_bounds[self.dL, 0],
+                        xmax=self.prior_bounds[self.dL, 1])
+                q *= dL_rescaled[:, np.newaxis]
+                samples_out[:, self.quaternions_out] = q
+            else:
+                samples_out[:, self.quaternions] = q
 
         if 'sky' in self.reparameterisations:
             if 'luminosity_distance' in self.reparameterisations:
@@ -323,28 +375,35 @@ class GWReparam:
 
         # deal spin angles
         if self.angle_indices:
-            for i, s in zip(self.angle_indices, self.angle_scales):
+            for i, s, l in zip(self.angle_indices, self.angle_scales, self.log_radial):
                 # if the boolean i[2] is true use radial component
                 # else draw from chi with 2 dof
-                r = samples[:, i[1]] if i[2] else None
+                if l and i[2]:
+                    r_base = samples_out[:, i[1]]
+                    r_base = rescale_0_to_1(r_base,
+                            xmin=self.prior_bounds[i[1], 0],
+                            xmax=self.prior_bounds[i[1], 1])
+                    samples_out = np.concatenate([samples_out, samples_out], axis=0)
+                    r = np.concatenate([np.log(r_base), -np.log(r_base)])
+                    theta = np.concatenate([samples[:, i[0]], samples[:, i[1]]])
+                else:
+                    r = samples[:, i[1]] if i[2] else None
+                    theta = samples[:, i[0]]
+                # Compute x, y
                 x, y = angle_to_cartesian(samples[:, i[0]], r=r, scale=s)
+
                 samples_out[:, i[0]] = x
                 samples_out[:, i[1]] = y
 
         if 'mass_ratio' in self.reparameterisations:
             if 'mass_ratio' in self.logit_parameters:
-                samples_out[:, self.mass_ratio_logit] = logit(
-                        samples[:, self.mass_ratio],
-                        xmin=self.prior_bounds[self.mass_ratio, 0],
-                        xmax=self.prior_bounds[self.mass_ratio, 1])
+                raise NotImplementedError('Logit has been removed for GW')
+                #samples_out[:, self.mass_ratio_logit] = logit(
+                #        samples[:, self.mass_ratio],
+                #        xmin=self.prior_bounds[self.mass_ratio, 0],
+                #        xmax=self.prior_bounds[self.mass_ratio, 1])
             elif self.q_inversion:
                 if not samples.shape[0] == 1:
-                    #q_dup = np.concatenate([samples[:, self.mass_ratio],
-                    #                  1 / samples[:, self.mass_ratio]], axis=0)
-
-                    #q_dup_rescale = 2 * ((q_dup - self.prior_bounds[self.mass_ratio, 0]) \
-                    #        / ((1 / self.prior_bounds[self.mass_ratio, 0]) \
-                    #        - self.prior_bounds[self.mass_ratio, 0])) - 1.
                     q_log = np.concatenate([np.log(samples[:, self.mass_ratio]),
                         -np.log(samples[:, self.mass_ratio])], axis=0)
                     samples_out = np.concatenate([samples_out, samples_out], axis=0)
@@ -353,22 +412,42 @@ class GWReparam:
                     #samples_out[:, self.mass_ratio] = 1. / samples[:, self.mass_ratio]
 
                     if self.quaternions:
+                        if self.flip:
+                            print('quaternions flip')
+                            n = q_log.shape[0] // 2
+                            samples_out[n:, self.quaternions[0]] = q[:, 0]
+                            samples_out[n:, self.quaternions[1]] = -q[:, 1]
+                            samples_out[n:, self.quaternions[2]] = -q[:, 2]
+                            samples_out[n:, self.quaternions[3]] = q[:, 3]
+                        elif self.reduced_quaternions:
+                            # this is phase shift by -pi since a shift by pi
+                            # would requier changing q0, q3
+                            n = q_log.shape[0] // 2
+                            samples_out[n:, self.quaternions[1]] *= -1
+                            samples_out[n:, self.quaternions[2]] *= -1
+                        else:
+                            n = q_log.shape[0] // 2
+                            samples_out[n:, self.quaternions[0]] = -samples[:, self.quaternions[3]]
+                            samples_out[n:, self.quaternions[1]] = samples[:, self.quaternions[2]]
+                            samples_out[n:, self.quaternions[2]] = -samples[:, self.quaternions[1]]
+                            samples_out[n:, self.quaternions[3]] = samples[:, self.quaternions[0]]
+
+                    elif 'phase' in self.search_angles:
+                        # if using phase then we just flip sign of x and y
                         n = q_log.shape[0] // 2
-                        samples_out[n:, self.quaternions[0]] = -samples[:, self.quaternions[3]]
-                        samples_out[n:, self.quaternions[1]] = samples[:, self.quaternions[2]]
-                        samples_out[n:, self.quaternions[2]] = -samples[:, self.quaternions[1]]
-                        samples_out[n:, self.quaternions[3]] = samples[:, self.quaternions[0]]
+                        samples_out[n:, self.phase_x] *= -1
+                        samples_out[n:, self.phase_y] *= -1
 
                 else:
                     # if only given one sample, do not duplicate it
                     # TODO: this is not general, but only applies to generating
                     # radius and will need to be made more general
-                    #samples_out[:, self.mass_ratio] = 1. / samples[:, self.mass_ratio]
-                    samples_out[:, self.mass_ratio]= \
-                            2 * ((samples[:, self.mass_ratio] \
-                            - self.prior_bounds[self.mass_ratio, 0]) \
-                            / ((1 / self.prior_bounds[self.mass_ratio, 0]) \
-                            - self.prior_bounds[self.mass_ratio, 0])) - 1.
+                    samples_out[:, self.mass_ratio] = np.log(samples[:, self.mass_ratio])
+                    #samples_out[:, self.mass_ratio]= \
+                    #        2 * ((samples[:, self.mass_ratio] \
+                    #        - self.prior_bounds[self.mass_ratio, 0]) \
+                    #        / ((1 / self.prior_bounds[self.mass_ratio, 0]) \
+                    #        - self.prior_bounds[self.mass_ratio, 0])) - 1.
 
 
         return samples_out
@@ -384,7 +463,10 @@ class GWReparam:
         if not self.parameter_indices:
             self.setup_parameter_indices()
 
-        samples_out = np.empty([samples.shape[0], self.reparam_dim])
+        if self.distance_rescaling and self.quaternions:
+            samples_out = np.empty([samples.shape[0], self.reparam_dim + 1])
+        else:
+            samples_out = np.empty([samples.shape[0], self.reparam_dim])
 
         samples_out[:, self.defaults] = self.inverse_normalise_defaults(
                 samples[:, self.defaults])
@@ -395,7 +477,16 @@ class GWReparam:
             samples_out[:, self.time] = np.float64(t) + np.float64(self.time_offset)
 
         if self.quaternions:
-            samples_out[:, self.quaternions] = samples[:, self.quaternions]
+            if self.distance_rescaling:
+                q = samples[:, self.quaternions_out].copy()
+                dL = np.sqrt(np.sum(q ** 2, axis=1))
+                q /= dL[:, np.newaxis]
+                samples_out[:, self.quaternions] = q / np.sqrt(np.sum(q ** 2, axis=1))[:, np.newaxis]
+                samples_out[:, self.dL] = inverse_rescale_0_to_1(dL,
+                        xmin=self.prior_bounds[self.dL, 0],
+                        xmax=self.prior_bounds[self.dL, 1])
+            else:
+                samples_out[:, self.quaternions] = samples[:, self.quaternions].copy()
 
         if 'sky' in self.reparameterisations:
             ra, dec, dL = cartesian_to_sky(samples[:, self.sky_x],
@@ -419,29 +510,35 @@ class GWReparam:
 
         if 'mass_ratio' in self.reparameterisations:
             if 'mass_ratio' in self.logit_parameters:
-                samples_out[:, self.mass_ratio] = inverse_logit(
-                        samples[:, self.mass_ratio_logit],
-                        xmin=self.prior_bounds[self.mass_ratio, 0],
-                        xmax=self.prior_bounds[self.mass_ratio, 1])
-            else:
+                raise NotImplementedError('Logit has been removed for GW')
+                #samples_out[:, self.mass_ratio] = inverse_logit(
+                #        samples[:, self.mass_ratio_logit],
+                #        xmin=self.prior_bounds[self.mass_ratio, 0],
+                #        xmax=self.prior_bounds[self.mass_ratio, 1])
+            elif self.q_inversion:
                 q = samples[:, self.mass_ratio]
-                #q = (( 1 / self.prior_bounds[self.mass_ratio, 0]) \
-                #        - self.prior_bounds[self.mass_ratio, 0]) * (0.5 *(q + 1)) \
-                #        + self.prior_bounds[self.mass_ratio, 0]
-                # flip mass ratio above 1 to 1/1
-                # log(q) -> [-inf, 0]
-                # these just need exp, for q>0 need exp(-q)
                 i = q <= 0.
-                #q[i] = 1 / q[i]
                 samples_out[i, self.mass_ratio] = np.exp(q[i])
                 samples_out[~i, self.mass_ratio] = np.exp(-q[~i])
-                #samples_out[:, self.mass_ratio] = 1 / samples[:, self.mass_ratio]
 
                 if self.quaternions:
-                    samples_out[~i, self.quaternions[0]] = samples[~i, self.quaternions[3]]
-                    samples_out[~i, self.quaternions[1]] = -samples[~i, self.quaternions[2]]
-                    samples_out[~i, self.quaternions[2]] = samples[~i, self.quaternions[1]]
-                    samples_out[~i, self.quaternions[3]] = -samples[~i, self.quaternions[0]]
+                    if self.flip:
+                        samples_out[~i, self.quaternions[0]] = samples[~i, self.quaternions[0]]
+                        samples_out[~i, self.quaternions[1]] = -samples[~i, self.quaternions[1]]
+                        samples_out[~i, self.quaternions[2]] = -samples[~i, self.quaternions[2]]
+                        samples_out[~i, self.quaternions[3]] = samples[~i, self.quaternions[3]]
+                    elif self.reduced_quaternions:
+                        samples_out[~i, self.quaternions[1]] *= -1
+                        samples_out[~i, self.quaternions[2]] *= -1
+                    else:
+                        samples_out[~i, self.quaternions[0]] = samples[~i, self.quaternions[3]]
+                        samples_out[~i, self.quaternions[1]] = -samples[~i, self.quaternions[2]]
+                        samples_out[~i, self.quaternions[2]] = samples[~i, self.quaternions[1]]
+                        samples_out[~i, self.quaternions[3]] = -samples[~i, self.quaternions[0]]
+                elif 'phase' in self.search_angles:
+                    # if using phase then we just flip sign of x and y
+                    samples_out[~i, self.phase_x] *= -1
+                    samples_out[~i, self.phase_y] *= -1
 
         return samples_out
 
@@ -454,13 +551,19 @@ class GWReparam:
             raise RuntimeError('Cannot compute jacobian given samples from the sampling space')
         log_J = np.zeros(samples.shape[0])
         if 'psi' in self.reparameterisations:
-            log_J += np.log(np.sqrt(samples[:, self.psi_x] ** 2.
-                + samples[:, self.psi_y] ** 2.))
+            pass
+            #log_J += np.log(np.sqrt(samples[:, self.psi_x] ** 2.
+            #    + samples[:, self.psi_y] ** 2.))
         if 'phase' in self.reparameterisations:
-            log_J += np.log(np.sqrt(samples[:, self.phase_x] ** 2.
-                + samples[:, self.phase_y] ** 2.))
+            pass
+            #log_J += np.log(np.sqrt(samples[:, self.phase_x] ** 2.
+            #    + samples[:, self.phase_y] ** 2.))
         if 'sky' in self.reparameterisations:
             # compute 1 / (sqrt(rxy) sqrt(rxyz))
+            # why is this positive? Is this definitely right? it gives right answer
+            # we need Jacobian for p(x) = p(f(x))|df(x)/dx| but have x'=f(x),
+            # so we need the INVERSE of the inverse function, since we using logJ
+            # this is just -logJ
             log_J += 0.5 * np.log(samples[:, self.sky_x] ** 2 \
                     + samples[:, self.sky_y] ** 2)
             log_J += 0.5 * np.log(samples[:, self.sky_x] ** 2 \
@@ -475,13 +578,14 @@ class GWReparam:
         if 'mass_ratio' in self.reparameterisations:
             # minus sig
             if 'mass_ratio' in self.logit_parameters:
-                log_J -= log_jacobian_inverse_logit(
-                        samples[:, self.mass_ratio_logit])
+                raise NotImplementedError('Logit has been removed for GW')
+                #log_J -= log_jacobian_inverse_logit(
+                #        samples[:, self.mass_ratio_logit])
             elif self.q_inversion:
                 # when using log division between q and 1/q is 0
                 # for <0 conversion is exp(q) for >0 exp(-q)
-                # so Jacobian is log(+/-exp(+/-q))
-                # but we need inverse
+                # so Jacobian is log(exp(+/-q))
+                # but we need inverse hence signs
                 i = samples[:, self.mass_ratio] <= 0.
                 log_J[i] -= samples[i, self.mass_ratio]
                 log_J[~i] += samples[~i, self.mass_ratio]
@@ -497,11 +601,16 @@ class GWReparam:
         Get a mask for the normalising flows. Either construct a mass from a
         list of parameters or a name.
         """
+        print('Initial mask: ', mask)
         mask_array = np.zeros(self.reparam_dim)
         if isinstance(mask, list):
             for m in mask:
                i = self.re_parameters.index(m)
                mask_array[i] = 1.
+
+        elif isinstance(mask, np.ndarray):
+            print('using numpy mask')
+            mask_array = mask.copy()
 
         elif mask == 'intrinsic':
             i = [j for j, p in enumerate(self.re_parameters) if p in self.intrinsic_parameters]

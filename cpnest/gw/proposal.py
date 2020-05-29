@@ -28,20 +28,19 @@ class GWNaiveProposal(EnsembleProposal):
 
 class GWFlowProposal(GWReparam, RandomFlowProposal):
 
-    def __init__(self, bilby_priors=False, **kwargs):
+    def __init__(self, bilby_priors=False, reparameterisations={}, **kwargs):
         parameters =  kwargs['names']   # used for GWReparam
         print('Proposal parameters:', parameters)
         super(GWFlowProposal, self).__init__(parameters=parameters,
-                initialise=False, **kwargs)
+                initialise=False, reparameterisations=reparameterisations, **kwargs)
         # setup normalisation with GWReparam functions aviablable
         print('Proposal dim:', self.reparam_dim)
         print('Bilby priors:', bilby_priors)
         if bilby_priors:
-            self.enable_bibly_priors(bilby_priors, parameters)
+            self.enable_bilby_priors(bilby_priors.copy(), parameters.copy())
             self.default_priors = False
         else:
             self.default_priors = True
-
 
         self.swap_enabled=False
         # update mask to array
@@ -51,18 +50,25 @@ class GWFlowProposal(GWReparam, RandomFlowProposal):
         self.initialise()
 
 
-    def enable_bibly_priors(self, bilby_priors, base_parameters):
-        """Use bibly priors to reduce cost of computing log_prior"""
+    def enable_bilby_priors(self, bilby_priors, base_parameters):
+        """Use bilby priors to reduce cost of computing log_prior"""
 
-        for k in base_parameters:
-            if k not in bilby_priors.keys():
-                bilby_priors.pop(k)
+        skip = []
+        if self.distance_rescaling:
+            print('Skipping quaternions')
+            skip = ['q_0', 'q_1', 'q_2', 'q_3']
+        if base_parameters:
+            for k in base_parameters:
+                if k not in bilby_priors.keys():
+                    bilby_priors.pop(k)
 
         def _log_prior(theta):
             """Log prior that takes numpy arrays"""
             log_p = 0
-            for i, p in enumerate(base_parameters):
-                log_p += bilby_priors[p].ln_prob(theta[:, i])
+            if base_parameters:
+                for i, p in enumerate(base_parameters):
+                    if p not in skip:
+                        log_p += bilby_priors[p].ln_prob(theta[:, i])
 
             return log_p
 
@@ -88,9 +94,11 @@ class GWFlowProposal(GWReparam, RandomFlowProposal):
         """
         log_p = 0.
         if 'psi' in self.reparameterisations:
-            log_p += chi.logpdf(radial_components[:, self.psi_radial-self.base_dim], 2)
+            pass
+            #log_p += chi.logpdf(radial_components[:, self.psi_radial-self.base_dim], 2)
         if 'phase' in self.reparameterisations:
-            log_p += chi.logpdf(radial_components[:, self.phase_radial-self.base_dim], 2)
+            pass
+            #log_p += chi.logpdf(radial_components[:, self.phase_radial-self.base_dim], 2)
         if 'sky' in self.reparameterisations:
             if self.sky_radial:
                 log_p += chi.logpdf(radial_components[:, self.sky_radial-self.base_dim], 3)

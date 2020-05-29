@@ -15,19 +15,17 @@ class GWFlowTrainer(GWReparam, FlowTrainer):
     """
     def __init__(self, **kwargs):
         parameters = kwargs['cpnest_model'].names
-        if 'logit' in kwargs['trainer_dict'].keys():
-            if kwargs['trainer_dict']['logit']:
-                kwargs['logit_parameters'] = kwargs['trainer_dict']['logit']
-        if 'q_inversion' in kwargs['trainer_dict'].keys():
-                kwargs['q_inversion'] = kwargs['trainer_dict']['q_inversion']
-        if 'bilby_priors' in kwargs['trainer_dict'].keys():
-            print('Removing bibly priors for JSON')
-            #kwargs['trainer_dict'].pop('bilby_priors')
+        reparameterisations = kwargs['trainer_dict']['reparameterisations']
 
-        super(GWFlowTrainer, self).__init__(parameters=parameters, **kwargs)
+        #if 'q_inversion' in kwargs['trainer_dict'].keys():
+        #        kwargs['q_inversion'] = kwargs['trainer_dict']['q_inversion']
+
+        super(GWFlowTrainer, self).__init__(parameters=parameters,
+                reparameterisations=reparameterisations, **kwargs)
+
         # update mask to array
-        if 'mask' in self.model_dict.keys():
-            self.mask = self.model_dict.pop('mask')
+        #if 'mask' in self.model_dict.keys():
+        #    self.mask = self.model_dict['mask'].copy()
 
     def setup_normalisation(self):
         """
