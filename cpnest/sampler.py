@@ -365,7 +365,7 @@ class Sampler(CPThread):
         Resumes the interrupted state from a
         checkpoint pickle file.
         """
-        self.logger.info('Resuming Sampler from '+resume_file)
+        print('Resuming Sampler from '+resume_file)
         with open(resume_file, "rb") as f:
             obj = pickle.load(f)
         obj.model   = model
