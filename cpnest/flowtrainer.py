@@ -531,22 +531,20 @@ class FlowTrainer(Trainer):
     def _train(self, loader, noise_scale=0.0):
         """
         Loop over the data and update the weights
+
+
+        Returns
+        -------
+        Mean of training loss for each batch
         """
         model = self.model
         model.train()
         train_loss = 0
 
         for idx, data in enumerate(loader):
-            if isinstance(data, list):
-                if len(data) > 1:
-                    cond_data = data[1].float()
-                    cond_data = cond_data.to(self.device)
-                else:
-                    cond_data = None
-                data = data[0]
-            data = (data + noise_scale * torch.randn_like(data)).to(self.device)
+            data = (data[0] + noise_scale * torch.randn_like(data[0])).to(self.device)
             self.optimiser.zero_grad()
-            loss = -model.log_probs(data, cond_data).mean()
+            loss = -model.log_probs(data).mean()
             train_loss += loss.item()
             loss.backward()
             self.optimiser.step()
@@ -555,13 +553,8 @@ class FlowTrainer(Trainer):
                 if isinstance(module, BatchNormFlow):
                     module.momentum = 0
 
-            if cond_data is not None:
-                with torch.no_grad():
-                    model(loader.dataset.tensors[0].to(data.device),
-                          loader.dataset.tensors[1].to(data.device).float())
-            else:
-                with torch.no_grad():
-                    model(loader.dataset.tensors[0].to(data.device))
+            with torch.no_grad():
+                model(loader.dataset.tensors[0].to(data.device))
 
             for module in model.modules():
                 if isinstance(module, BatchNormFlow):
@@ -572,22 +565,21 @@ class FlowTrainer(Trainer):
     def _validate(self, loader):
         """
         Loop over the data and get validation loss
+
+        Returns
+        -------
+        Mean of training loss for each batch
         """
+        # TODO: review this code
+
         model = self.model
         model.eval()
         val_loss = 0
 
         for idx, data in enumerate(loader):
-            if isinstance(data, list):
-                if len(data) > 1:
-                    cond_data = data[1].float()
-                    cond_data = cond_data.to(self.device)
-                else:
-                    cond_data = None
-                data = data[0]
-            data = data.to(self.device)
+            data = data[0].to(self.device)
             with torch.no_grad():
-                val_loss += -model.log_probs(data, cond_data).mean().item()
+                val_loss += -model.log_probs(data).mean().item()
 
         return val_loss / len(loader)
 
@@ -876,3 +868,68 @@ class ClusterFlowTrainer(FlowTrainer):
             self.plot_clusters(all_outputs, all_labels, active_clusters, output=output, filename='cluster_samples.png')
 
         return z, all_outputs, all_labels
+
+    def _train(self, loader, noise_scale=0.0):
+        """
+        Loop over the data and update the weights
+        """
+        model = self.model
+        model.train()
+        train_loss = 0
+
+        for idx, data in enumerate(loader):
+            if isinstance(data, list):
+                if len(data) > 1:
+                    cond_data = data[1].float()
+                    cond_data = cond_data.to(self.device)
+                else:
+                    cond_data = None
+                data = data[0]
+            data = (data + noise_scale * torch.randn_like(data)).to(self.device)
+            self.optimiser.zero_grad()
+            loss = -model.log_probs(data, cond_data).mean()
+            train_loss += loss.item()
+            loss.backward()
+            self.optimiser.step()
+
+            for module in model.modules():
+                if isinstance(module, BatchNormFlow):
+                    module.momentum = 0
+
+            if cond_data is not None:
+                with torch.no_grad():
+                    model(loader.dataset.tensors[0].to(data.device),
+                          loader.dataset.tensors[1].to(data.device).float())
+            else:
+                with torch.no_grad():
+                    model(loader.dataset.tensors[0].to(data.device))
+
+            for module in model.modules():
+                if isinstance(module, BatchNormFlow):
+                    module.momentum = 1
+
+        return train_loss / len(loader)
+
+    def _validate(self, loader):
+        """
+        Loop over the data and get validation loss
+        """
+        # TODO: review this code
+
+        model = self.model
+        model.eval()
+        val_loss = 0
+
+        for idx, data in enumerate(loader):
+            if isinstance(data, list):
+                if len(data) > 1:
+                    cond_data = data[1].float()
+                    cond_data = cond_data.to(self.device)
+                else:
+                    cond_data = None
+                data = data[0]
+            data = data.to(self.device)
+            with torch.no_grad():
+                val_loss += -model.log_probs(data, cond_data).mean().item()
+
+        return val_loss / len(loader)
