@@ -594,8 +594,7 @@ class RandomFlowProposal(FlowProposal):
                 self.logger.error('Rejection sampling produced zero samples!')
                 raise RuntimeError('Rejection sampling produced zero samples!')
             if len(indices) / N < 0.01:
-                self.logger.error('Rejection sampling accepted less than 1 percent of samples!')
-                raise RuntimeError('Rejection sampling accepted less than 1 percent of samples!')
+                self.logger.warning('Rejection sampling accepted less than 1 percent of samples!')
             else:
                 # array of indices to take random draws from
                 self.samples += [samples[i] for i in indices]
