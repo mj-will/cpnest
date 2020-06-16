@@ -642,6 +642,113 @@ class RandomFlowProposal(FlowProposal):
         return new_sample
 
 
+class BilbyFlowProposal(RandomFlowProposal):
+
+    def __init__(self, bilby_priors=False, reparameterisations={}, **kwargs):
+        parameters =  kwargs['names']   # used for GWReparam
+        super(BilbyFlowProposal, self).__init__(parameters=parameters,
+                initialise=False, reparameterisations=reparameterisations, **kwargs)
+        if bilby_priors:
+            self.enable_bilby_priors(bilby_priors.copy(), parameters.copy())
+            self.default_priors = False
+        else:
+            self.default_priors = True
+
+        self.swap_enabled=False
+        # update mask to array
+        self.initialise()
+
+
+    def enable_bilby_priors(self, bilby_priors, base_parameters, skip=[]):
+        """Use bilby priors to reduce cost of computing log_prior"""
+
+        if base_parameters:
+            for k in base_parameters:
+                if k not in bilby_priors.keys():
+                    bilby_priors.pop(k)
+
+        def _log_prior(theta):
+            """Log prior that takes numpy arrays"""
+            log_p = 0
+            if base_parameters:
+                for i, p in enumerate(base_parameters):
+                    if p not in skip:
+                        log_p += bilby_priors[p].ln_prob(theta[:, i])
+            return log_p
+
+        self.log_prior_array = _log_prior
+
+    def compute_weights(self, theta, z, log_J):
+        """
+        Compute the weight for a given set of samples
+        """
+        log_q = self.log_proposal_prob(z, log_J)
+        if self.default_priors:
+            log_p_phys = np.array([self.log_prior(t) for t in theta])
+        else:
+            log_p_phys = self.log_prior_array(theta)
+        log_p = log_p_phys
+        log_w = log_p - log_q
+        log_w -= np.max(log_w)
+        return log_w
+
+    def populate(self, old_r2, N=10000):
+        """Populate a pool of latent points"""
+        self.logger.debug(f"Populating proposal for r2: {old_r2}")
+        # draw n samples and sort by radius
+        # only proceed if the draw has produced points
+        # mainly an issue with drawing from the gaussian
+        self.samples = []
+        self.z = np.empty([0, self.ndims])
+        pn = 0
+        swap = False
+        while len(self.samples) < N:
+            while True:
+                z = self.draw(old_r2, N, fuzz=self.fuzz)
+                if z.size:
+                    break
+            samples, log_J = self.backward_pass(z)
+            log_J *= -1.
+            samples = self.rescale_output(samples)
+            if self.default_priors:
+                samples = [self.make_live_point(p) for p in samples]
+            log_w = self.compute_weights(samples, z, log_J)
+            if not self.default_priors:
+                samples = [self.make_live_point(p) for p in samples]
+            # rejection sampling
+            log_u = np.log(np.random.rand(len(samples)))
+
+            pn += 1
+            indices = np.where((log_w - log_u) >= 0)[0]
+            acceptance = len(indices)/len(samples)
+            #self.logger.debug(f'Proposal acceptance: {acceptance:.3}')
+            if not len(indices):
+                self.logger.error('Rejection sampling produced zero samples!')
+                raise RuntimeError('Rejection sampling produced zero samples!')
+            if acceptance < 0.01:
+                #self.logger.warning('Rejection sampling accepted less than 1 percent of samples!')
+                if not swap and pn < 5:
+                    if self.swap_enabled:
+                        self.logger.debug('Swapping to other proposal')
+                        swap = True
+                        flag = self.swap_proposal(acceptance, old_r2, N)
+                        # if swapped reset counter
+                        if flag:
+                            pn = 0
+            # array of indices to take random draws from
+            self.samples += [samples[i] for i in indices]
+            self.z = np.concatenate([self.z, z[indices]], axis=0)
+            #self.logger.debug(f'Proposal progress: {len(self.samples)} / {N} total points accepted')
+
+        #self.samples = self.samples[:N]
+        #self.z = self.z[:N]
+        self.indices = np.random.permutation(len(self.samples))
+        self.populated = True
+        if swap:
+            self.reset_proposal()
+        self.logger.debug('Proposal populated: {} / {} points accepted'.format(len(self.samples), N))
+
+
 class LogitFlowProposal(RandomFlowProposal):
 
     def __init__(self, **kwargs):

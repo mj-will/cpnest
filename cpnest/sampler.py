@@ -318,6 +318,14 @@ class Sampler(CPThread):
                     if 'bilby_priors' in self.trainer_dict.keys():
                         kwargs['bilby_priors'] = self.trainer_dict['bilby_priors']
 
+                elif 'bilby' in self.trainer_type:
+                    self.logger.debug('Using BilbyFlowProposal')
+                    from .proposal import BilbyFlowProposal
+                    Proposal = BilbyFlowProposal
+                    NaiveProposal = AnalyticNaiveProposal
+                    if 'bilby_priors' in self.trainer_dict.keys():
+                        kwargs['bilby_priors'] = self.trainer_dict['bilby_priors']
+
                 else:
                     self.logger.debug('Using RandomFlowProposal')
                     Proposal = RandomFlowProposal
@@ -344,7 +352,7 @@ class Sampler(CPThread):
                 self.accepted = 0
 
                 kwargs = dict()
-                if 'gw' in self.trainer_type:
+                if 'gw' in self.trainer_type or 'bilby' in self.trainer_type:
                     kwargs['model'] = self.model
 
                 self.naive_proposal = NaiveProposal(
