@@ -104,6 +104,17 @@ class Sampler(object):
         self.producer_pipe, self.thread_id = self.manager.connect_producer()
         self.last_checkpoint_time = time.time()
 
+        self.likelihood_calls = 0
+
+
+    def log_likelihood_wrapper(self, p):
+        """
+        Wrapper for the log-likelihood in the model to record the number
+        of likeihood evaluations
+        """
+        self.likelihood_calls += 1
+        return self.model.log_likelihood(p)
+
     def reset(self):
         """
         Initialise the sampler by generating :int:`poolsize` `cpnest.parameter.LivePoint`
@@ -116,7 +127,7 @@ class Sampler(object):
                 p = self.model.new_point()
                 p.logP = self.model.log_prior(p)
                 if np.isfinite(p.logP): break
-            p.logL=self.model.log_likelihood(p)
+            p.logL=self.log_likelihood_wrapper(p)
             if p.logL is None or not np.isfinite(p.logL):
                 self.logger.warning("Received non-finite logL value {0} with parameters {1}".format(str(p.logL), str(p)))
                 self.logger.warning("You may want to check your likelihood function to improve sampling")
@@ -130,7 +141,7 @@ class Sampler(object):
             _, p = next(self.yield_sample(-np.inf))
         if self.verbose >= 3:
             # save the poolsize as prior samples
-            
+
             prior_samples = []
             for k in tqdm(range(self.maxmcmc), desc='SMPLR {} generating prior samples'.format(self.thread_id),
                 disable= not self.verbose, position=self.thread_id, leave=False):
@@ -214,7 +225,7 @@ class Sampler(object):
                 (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value))
                 # Send the sample to the Nested Sampler
                 self.producer_pipe.send((self.acceptance,self.sub_acceptance,Nmcmc,outParam))
-            
+
             # otherwise, keep on sampling from the previous boundary
             else:
                 (Nmcmc, outParam) = next(self.yield_sample(self.logLmin.value))
@@ -226,9 +237,12 @@ class Sampler(object):
 
         self.logger.critical("Sampler process {0!s}: MCMC samples accumulated = {1:d}".format(os.getpid(),len(self.samples)))
 #        self.samples.extend(self.evolution_points)
-        
+
+        with open(os.path.join(self.output,'mcmc_chain_%s_likelihood_calls.txt'%os.getpid()), 'w') as f:
+            f.write('%d' % self.likelihood_calls)
+
         if self.verbose >=3:
-            
+
             self.mcmc_samples = rfn.stack_arrays([self.samples[j].asnparray()
                                                   for j in range(0,len(self.samples))],usemask=False)
             np.savetxt(os.path.join(self.output,'mcmc_chain_%s.dat'%os.getpid()),
@@ -301,7 +315,7 @@ class MetropolisHastingsSampler(Sampler):
                 newparam.logP = self.model.log_prior(newparam)
 
                 if newparam.logP-logp_old + self.proposal.log_J > log(random()):
-                    newparam.logL = self.model.log_likelihood(newparam)
+                    newparam.logL = self.log_likelihood_wrapper(newparam)
                     if newparam.logL > logLmin:
                         self.logLmax.value = max(self.logLmax.value, newparam.logL)
                         oldparam = newparam.copy()
